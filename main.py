@@ -60,7 +60,6 @@ class Player(Sprite):
         for obstacle in obstacles:
             if self.rect.colliderect(obstacle.rect):
                 self.rect.x, self.rect.y = old_x, old_y
-                print("Зіткнення з перешкодою!")
                 break
 
 class Bullet(Sprite):
@@ -99,7 +98,10 @@ class Camera:
         self.y = -player.rect.centery + H // 2
 
 
-bg = Sprite(0, 0, W, H, pygame.image.load("images/BG.png"))
+font = pygame.font.SysFont("Century Gothic", 20, True)
+
+menu_bg = Sprite(0, 0, W, H, pygame.image.load("images/BG.png"))
+game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
 play_button = Sprite(W/2-75, H/2-35, 150, 70, pygame.image.load("images/Play.png"))
 player = Player(100, 100, 50, 50, pygame.image.load("images/Player.png"), 5)
 camera = Camera(0.9, 0.9, 0.9, 0.9, player.speed)
@@ -133,13 +135,12 @@ while running:
                 menu = False
     
     if menu:
-        bg.draw()
+        menu_bg.draw()
         play_button.draw()
+        version_txt = font.render("V0.2", True, (0, 0, 0))
+        window.blit(version_txt, (0, 0))
     else:
-        player.update(obstacles)
-        player.draw()
-        player.speed = player.base_speed
-        camera.update(player)
+        game_bg.draw()
     
         for obstacle in obstacles:
             obstacle.draw()
@@ -148,6 +149,11 @@ while running:
             tile.draw()
             if player.rect.colliderect(tile.rect):
                 tile.effect(player)
+        
+        player.update(obstacles)
+        player.draw()
+        player.speed = player.base_speed
+        camera.update(player)
     
     pygame.display.update()
     clock.tick(60)
