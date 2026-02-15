@@ -1,9 +1,11 @@
 from maze import maze
+from datetime import datetime
 import pygame
 pygame.init()
 
 W, H = 800, 600
 b_size, b_x, b_y = 64, 0, 0
+i = 0
 map_width, map_height = len(maze[0]) * b_size, len(maze) * b_size
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
@@ -31,8 +33,9 @@ class Sprite:
 
         draw_x = self.rect.x * camera.zoom + camera.x
         draw_y = self.rect.y * camera.zoom + camera.y
-
-        window.blit(scaled_img, (draw_x, draw_y))
+        
+        if player.rect.x + W > draw_x or player.rect.y + H > draw_y:
+            window.blit(scaled_img, (draw_x, draw_y))
 
 class SlowTile(Sprite):
     def __init__(self, x, y, w, h, img, slowing_coof):
@@ -51,33 +54,47 @@ class FastTile(Sprite):
         player.speed = player.base_speed * self.speeding_coof
 
 class Player(Sprite):
-    def __init__(self, x, y, w, h, img, speed):
-        super().__init__(x, y, w, h, img)
+    def __init__(self, x, y, img, speed, scale=64):
+        self.r_img = pygame.transform.scale(img, (scale, scale))
+        self.l_img = pygame.transform.rotate(self.r_img, 180)
+        self.u_img = pygame.transform.rotate(self.r_img, 90)
+        self.d_img = pygame.transform.rotate(self.r_img, 270)
+        super().__init__(x, y, scale, scale, self.r_img)
+        
         self.base_speed = speed
         self.speed = self.base_speed
+        self.shooting_pos_x, self.shooting_pos_y = self.rect.centerx + 20, self.rect.centery - 4
         self.direction = "up"
-    
+
     def update(self, obstacles):
         old_x, old_y = self.rect.x, self.rect.y
         keys = pygame.key.get_pressed()
-    
+
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             self.rect.x -= self.speed
             self.direction = "left"
+            self.img = self.l_img
+            self.shooting_pos_x, self.shooting_pos_y = self.rect.centerx - 20, self.rect.centery - 4
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             self.rect.x += self.speed
             self.direction = "right"
+            self.img = self.r_img
+            self.shooting_pos_x, self.shooting_pos_y = self.rect.centerx + 20, self.rect.centery - 4
         if keys[pygame.K_UP] or keys[pygame.K_w]:
             self.rect.y -= self.speed
             self.direction = "up"
+            self.img = self.u_img
+            self.shooting_pos_x, self.shooting_pos_y = self.rect.centerx + 4, self.rect.centery - 20
         if keys[pygame.K_DOWN] or keys[pygame.K_s]:
             self.rect.y += self.speed
             self.direction = "down"
-        
+            self.img = self.d_img
+            self.shooting_pos_x, self.shooting_pos_y = self.rect.centerx - 4, self.rect.centery + 20
         for obstacle in obstacles:
             if self.rect.colliderect(obstacle.rect):
                 self.rect.x, self.rect.y = old_x, old_y
                 break
+        
             
 class Bullet(Sprite):
     def __init__(self, x, y, w, h, image, speed, target_pos):
@@ -95,15 +112,15 @@ class Bullet(Sprite):
 
         self.alive = True  # 👈 флаг життя
 
-    def move(self):
+    def move(self, player):
         self.pos += self.direction * self.speed
         self.rect.center = self.pos
 
         if (
             self.rect.right < 0 or
-            self.rect.left > map_width or
+            self.rect.left > W + player.rect.x or
             self.rect.bottom < 0 or
-            self.rect.top > map_height
+            self.rect.top > H + player.rect.y
         ):
             self.alive = False
 
@@ -117,14 +134,21 @@ class Camera:
         self.x = -player.rect.centerx * self.zoom + W // 2
         self.y = -player.rect.centery * self.zoom + H // 2
 
+def write_info(path, info):
+    now = datetime.now()
+    formatted = f"[{now.strftime('%d.%m.%Y')}] [{now.strftime('%H:%M')}]"
+    with open(path, "a", encoding="utf-8") as file:
+        file.write(f"{formatted} {info}\n")
+
 font = pygame.font.SysFont("Century Gothic", 20, True)
+version_txt = font.render("V0.6", True, (0, 0, 0))
 
 bullet_img = pygame.image.load("images/Bullet.png")
 menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
 game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
 play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png"))
 exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
-player = Player(100, 100, 50, 50, pygame.image.load("images/Player.png"), 5)
+player = Player(100, 100, pygame.image.load("images/Player.png"), 5, 50)
 camera = Camera()
 obstacles = []
 tiles = []
@@ -145,6 +169,7 @@ for row in maze:
 running = True
 menu = True
 while running:
+    i += 1
     window.fill((0, 0, 0))
     last_mouse_x, last_mouse_y = pygame.mouse.get_pos()
     for event in pygame.event.get():
@@ -157,6 +182,7 @@ while running:
             print(y)
             if play_button.rect.collidepoint(x, y):
                 menu = False
+                write_info("log.txt", "CLOSED MENU")
             if exit_button.rect.collidepoint(x, y):
                 running = False
         if keys[pygame.K_SPACE]:
@@ -167,8 +193,8 @@ while running:
             )
 
             bullets.append(Bullet(
-                player.rect.centerx,
-                player.rect.centery,
+                player.shooting_pos_x,
+                player.shooting_pos_y,
                 10, 10,
                 bullet_img,
                 8,
@@ -187,7 +213,6 @@ while running:
         menu_bg.draw()
         play_button.draw()
         exit_button.draw()
-        version_txt = font.render("V0.6", True, (0, 0, 0))
         window.blit(version_txt, (0, 0))
         
         menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 10
@@ -206,11 +231,16 @@ while running:
         
         for bullet in bullets:
             bullet.draw()
-            bullet.move()
+            bullet.move(player)
 
         # 🔥 Очищення після руху
         bullets = [b for b in bullets if b.alive]
 
+        fps = clock.get_fps()
+        fps_txt = font.render(f"FPS: {fps:.2f}", True, (255, 255, 255))
+        window.blit(fps_txt, (0, 0))
+        if i % 10 == 0:
+            write_info("log.txt", f"FPS: {fps}")
         
         player.update(obstacles)
         player.draw()
