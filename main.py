@@ -1,5 +1,4 @@
 from maze import maze
-import math
 import pygame
 pygame.init()
 
@@ -8,6 +7,9 @@ b_size, b_x, b_y = 64, 0, 0
 map_width, map_height = len(maze[0]) * b_size, len(maze) * b_size
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
+
+pygame.display.set_caption("Battle City Remake")
+pygame.display.set_icon(pygame.image.load("images/Player.png"))
 
 pygame.mixer.music.load("sounds/menu_music.mp3")
 pygame.mixer.music.play(-1)
@@ -19,7 +21,18 @@ class Sprite:
         self.img = pygame.transform.scale(self.img , (w, h))
     
     def draw(self):
-        window.blit(self.img , (self.rect.x + camera.x, self.rect.y + camera.y))
+        scaled_img = pygame.transform.scale(
+            self.img,
+            (
+                int(self.rect.w * camera.zoom),
+                int(self.rect.h * camera.zoom)
+            )
+        )
+
+        draw_x = self.rect.x * camera.zoom + camera.x
+        draw_y = self.rect.y * camera.zoom + camera.y
+
+        window.blit(scaled_img, (draw_x, draw_y))
 
 class SlowTile(Sprite):
     def __init__(self, x, y, w, h, img, slowing_coof):
@@ -95,27 +108,24 @@ class Bullet(Sprite):
             self.alive = False
 
 class Camera:
-    def __init__(self, right_edge, left_edge, top_edge, bottom_edge, speed):
+    def __init__(self):
         self.x = 0
         self.y = 0
-        self.speed = speed
-        self.right_edge = right_edge
-        self.left_edge = left_edge
-        self.top_edge = top_edge
-        self.bottom_edge = bottom_edge
+        self.zoom = 1.0  # 👈 рівень зуму
 
     def update(self, player):
-        self.x = -player.rect.centerx + W // 2
-        self.y = -player.rect.centery + H // 2
+        self.x = -player.rect.centerx * self.zoom + W // 2
+        self.y = -player.rect.centery * self.zoom + H // 2
 
 font = pygame.font.SysFont("Century Gothic", 20, True)
 
 bullet_img = pygame.image.load("images/Bullet.png")
 menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
 game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
-play_button = Sprite(W/2-75, H/2-35, 150, 70, pygame.image.load("images/Play.png"))
+play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png"))
+exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
 player = Player(100, 100, 50, 50, pygame.image.load("images/Player.png"), 5)
-camera = Camera(0.9, 0.9, 0.9, 0.9, player.speed)
+camera = Camera()
 obstacles = []
 tiles = []
 bullets = []
@@ -125,9 +135,9 @@ for row in maze:
         if char == "1":
             obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Wall.png")))
         if char == "2":
-            tiles.append(SlowTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Slow.png"), 1.3))
+            tiles.append(SlowTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Slow.png"), 1.7))
         if char == "3":
-            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Fast.png"), 1.3))
+            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Fast.png"), 2))
         b_x += b_size
     b_y += b_size
     b_x = 0
@@ -147,11 +157,13 @@ while running:
             print(y)
             if play_button.rect.collidepoint(x, y):
                 menu = False
+            if exit_button.rect.collidepoint(x, y):
+                running = False
         if keys[pygame.K_SPACE]:
             mouse_pos = pygame.mouse.get_pos()
             world_mouse = (
-                mouse_pos[0] - camera.x,
-                mouse_pos[1] - camera.y
+                (mouse_pos[0] - camera.x) / camera.zoom,
+                (mouse_pos[1] - camera.y) / camera.zoom
             )
 
             bullets.append(Bullet(
@@ -162,15 +174,25 @@ while running:
                 8,
                 world_mouse
             ))
-    
+        if event.type == pygame.MOUSEWHEEL:
+            camera.zoom += event.y * 0.1
+
+            # Обмеження
+            if camera.zoom < 0.5:
+                camera.zoom = 0.5
+            if camera.zoom > 2:
+                camera.zoom = 2
+
     if menu:
         menu_bg.draw()
         play_button.draw()
-        version_txt = font.render("V0.3", True, (0, 0, 0))
+        exit_button.draw()
+        version_txt = font.render("V0.6", True, (0, 0, 0))
         window.blit(version_txt, (0, 0))
         
-        menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 5
-        menu_bg.rect.y += (pygame.mouse.get_pos()[1] - last_mouse_y) / 5
+        menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 10
+        menu_bg.rect.y += (pygame.mouse.get_pos()[1] - last_mouse_y) / 10
+        
     else:
         game_bg.draw()
     
