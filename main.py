@@ -54,7 +54,7 @@ class FastTile(Sprite):
         player.speed = player.base_speed * self.speeding_coof
 
 class Player(Sprite):
-    def __init__(self, x, y, img, speed, scale=64):
+    def __init__(self, x, y, img, speed, scale=64, patrons=30):
         self.r_img = pygame.transform.scale(img, (scale, scale))
         self.l_img = pygame.transform.rotate(self.r_img, 180)
         self.u_img = pygame.transform.rotate(self.r_img, 90)
@@ -65,6 +65,12 @@ class Player(Sprite):
         self.speed = self.base_speed
         self.shooting_pos_x, self.shooting_pos_y = self.rect.centerx + 20, self.rect.centery - 4
         self.direction = "up"
+        self.max_patrons = patrons
+        self.patrons = self.max_patrons
+        self.max_wait = 170
+        self.wait = 0
+        self.shooting_cd = 10
+        self.t = 0
 
     def update(self, obstacles):
         old_x, old_y = self.rect.x, self.rect.y
@@ -94,6 +100,31 @@ class Player(Sprite):
             if self.rect.colliderect(obstacle.rect):
                 self.rect.x, self.rect.y = old_x, old_y
                 break
+        self.wait += 1
+        self.t += 1
+        if self.wait >= self.max_wait and self.patrons < self.max_patrons:
+            self.wait = 0
+            self.patrons += min(self.max_patrons-self.patrons, 5)
+        
+    def fire(self):
+        if self.patrons > 0 and self.t >= self.shooting_cd:
+            self.t = 0
+            self.patrons -= 1
+            mouse_pos = pygame.mouse.get_pos()
+            world_mouse = (
+                (mouse_pos[0] - camera.x) / camera.zoom,
+                (mouse_pos[1] - camera.y) / camera.zoom
+            )
+
+            bullets.append(Bullet(
+                self.shooting_pos_x,
+                self.shooting_pos_y,
+                10, 10,
+                bullet_img,
+                8,
+                world_mouse
+            ))
+            
         
             
 class Bullet(Sprite):
@@ -141,7 +172,7 @@ def write_info(path, info):
         file.write(f"{formatted} {info}\n")
 
 font = pygame.font.SysFont("Century Gothic", 20, True)
-version_txt = font.render("V0.6", True, (0, 0, 0))
+version_txt = font.render("V0.8", True, (0, 0, 0))
 
 bullet_img = pygame.image.load("images/Bullet.png")
 menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
@@ -186,20 +217,7 @@ while running:
             if exit_button.rect.collidepoint(x, y):
                 running = False
         if keys[pygame.K_SPACE]:
-            mouse_pos = pygame.mouse.get_pos()
-            world_mouse = (
-                (mouse_pos[0] - camera.x) / camera.zoom,
-                (mouse_pos[1] - camera.y) / camera.zoom
-            )
-
-            bullets.append(Bullet(
-                player.shooting_pos_x,
-                player.shooting_pos_y,
-                10, 10,
-                bullet_img,
-                8,
-                world_mouse
-            ))
+            player.fire()
         if event.type == pygame.MOUSEWHEEL:
             camera.zoom += event.y * 0.1
 
@@ -239,6 +257,8 @@ while running:
         fps = clock.get_fps()
         fps_txt = font.render(f"FPS: {fps:.2f}", True, (255, 255, 255))
         window.blit(fps_txt, (0, 0))
+        patrons_txt = font.render(f"Patrons: {player.patrons}", True, (255, 255, 255))
+        window.blit(patrons_txt, (0, 20))
         if i % 10 == 0:
             write_info("log.txt", f"FPS: {fps}")
         
