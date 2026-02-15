@@ -105,11 +105,10 @@ class Camera:
         self.x = -player.rect.centerx + W // 2
         self.y = -player.rect.centery + H // 2
 
-
 font = pygame.font.SysFont("Century Gothic", 20, True)
 
 bullet_img = pygame.image.load("images/Bullet.png")
-menu_bg = Sprite(0, 0, W, H, pygame.image.load("images/BG.png"))
+menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
 game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
 play_button = Sprite(W/2-75, H/2-35, 150, 70, pygame.image.load("images/Play.png"))
 player = Player(100, 100, 50, 50, pygame.image.load("images/Player.png"), 5)
@@ -134,6 +133,7 @@ running = True
 menu = True
 while running:
     window.fill((0, 0, 0))
+    last_mouse_x, last_mouse_y = pygame.mouse.get_pos()
     for event in pygame.event.get():
         keys = pygame.key.get_pressed()
         if event.type == pygame.QUIT:
@@ -165,6 +165,9 @@ while running:
         play_button.draw()
         version_txt = font.render("V0.3", True, (0, 0, 0))
         window.blit(version_txt, (0, 0))
+        
+        menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 5
+        menu_bg.rect.y += (pygame.mouse.get_pos()[1] - last_mouse_y) / 5
     else:
         game_bg.draw()
     
