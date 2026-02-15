@@ -9,6 +9,9 @@ map_width, map_height = len(maze[0]) * b_size, len(maze) * b_size
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 
+pygame.mixer.music.load("sounds/menu_music.mp3")
+pygame.mixer.music.play(-1)
+
 class Sprite:
     def __init__(self , x , y , w , h, img):
         self.img = img
