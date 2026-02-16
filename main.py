@@ -14,7 +14,7 @@ pygame.display.set_caption("Battle City Remake")
 pygame.display.set_icon(pygame.image.load("images/Player.png"))
 
 pygame.mixer.music.load("sounds/menu_music.mp3")
-pygame.mixer.music.play(-1)
+# pygame.mixer.music.play(-1)
 
 class Sprite:
     def __init__(self , x , y , w , h, img):
@@ -52,6 +52,21 @@ class FastTile(Sprite):
     
     def effect(self, player):
         player.speed = player.base_speed * self.speeding_coof
+
+class MoveTile(Sprite):
+    def __init__(self, x, y, w, h, img, direction):
+        super().__init__(x, y, w, h, img)
+        self.direction = direction
+    
+    def effect(self, player):
+        if self.direction == "up":
+            player.rect.y -= 3
+        if self.direction == "down":
+            player.rect.y += 3
+        if self.direction == "left":
+            player.rect.x -= 3
+        if self.direction == "right":
+            player.rect.x += 3
 
 class Player(Sprite):
     def __init__(self, x, y, img, speed, scale=64, patrons=30):
@@ -171,6 +186,12 @@ def write_info(path, info):
     with open(path, "a", encoding="utf-8") as file:
         file.write(f"{formatted} {info}\n")
 
+def update_player_image():
+    player.r_img = pygame.image.load(f"images/{costume}.png")
+    player.l_img = pygame.transform.rotate(player.r_img, 180)
+    player.u_img = pygame.transform.rotate(player.r_img, 90)
+    player.d_img = pygame.transform.rotate(player.r_img, 270)
+
 font = pygame.font.SysFont("Century Gothic", 20, True)
 version_txt = font.render("V0.8", True, (0, 0, 0))
 
@@ -179,6 +200,10 @@ menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
 game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
 play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png"))
 exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
+shop_button = Sprite(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Shop.png"))
+close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Close.png"))
+buy_slow = Sprite(100, 100, 100, 140, pygame.image.load("images/BuySlow.png"))
+buy_slow_button = Sprite(110, 190, 80, 40, pygame.image.load("images/Buy.png"))
 player = Player(100, 100, pygame.image.load("images/Player.png"), 5, 50)
 camera = Camera()
 obstacles = []
@@ -190,17 +215,24 @@ for row in maze:
         if char == "1":
             obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Wall.png")))
         if char == "2":
-            tiles.append(SlowTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Slow.png"), 1.7))
+            tiles.append(SlowTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Slow.png"), 1.7))
         if char == "3":
-            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Fast.png"), 2))
+            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 2))
+        if char == "4":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"), "down"))
         b_x += b_size
     b_y += b_size
     b_x = 0
 
 running = True
 menu = True
+shop = False
+costume = "Player"
+bought_costumes = {"Player"}
+
 while running:
     i += 1
+    update_player_image()
     window.fill((0, 0, 0))
     last_mouse_x, last_mouse_y = pygame.mouse.get_pos()
     for event in pygame.event.get():
@@ -209,15 +241,27 @@ while running:
             running = False
         if event.type == pygame.MOUSEBUTTONDOWN:
             x, y = event.pos
-            print(x)
-            print(y)
             if play_button.rect.collidepoint(x, y):
                 menu = False
                 write_info("log.txt", "CLOSED MENU")
+            if shop_button.rect.collidepoint(x, y):
+                menu = False
+                shop = True
+                write_info("log.txt", "OPENED SETTINGS")
             if exit_button.rect.collidepoint(x, y):
                 running = False
+            if close_shop_button.rect.collidepoint(x, y):
+                shop = False
+                menu = True
+            if buy_slow_button.rect.collidepoint(x, y):
+                bought_costumes.add("Slow")
+                print("!!")
         if keys[pygame.K_SPACE]:
             player.fire()
+        if keys[pygame.K_1]:
+            costume = "Player"
+        elif keys[pygame.K_2] and "Slow" in bought_costumes:
+            costume = "Slow"
         if event.type == pygame.MOUSEWHEEL:
             camera.zoom += event.y * 0.1
 
@@ -231,11 +275,17 @@ while running:
         menu_bg.draw()
         play_button.draw()
         exit_button.draw()
+        shop_button.draw()
         window.blit(version_txt, (0, 0))
         
         menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 10
         menu_bg.rect.y += (pygame.mouse.get_pos()[1] - last_mouse_y) / 10
-        
+    elif shop:
+        menu_bg.draw()
+        close_shop_button.draw()
+        buy_slow.draw()
+        if "Slow" not in bought_costumes:
+            buy_slow_button.draw()
     else:
         game_bg.draw()
     
