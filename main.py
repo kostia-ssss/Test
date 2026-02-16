@@ -1,4 +1,5 @@
 from maze import maze
+from tank_data import tank_data
 from datetime import datetime
 import pygame
 pygame.init()
@@ -18,24 +19,13 @@ pygame.mixer.music.load("sounds/menu_music.mp3")
 
 class Sprite:
     def __init__(self , x , y , w , h, img):
-        self.img = img
+        self.original_img = img.convert_alpha()
+        self.img = pygame.transform.scale(self.original_img , (w, h))
         self.rect = pygame.Rect(x, y, w, h)
-        self.img = pygame.transform.scale(self.img , (w, h))
-    
-    def draw(self):
-        scaled_img = pygame.transform.scale(
-            self.img,
-            (
-                int(self.rect.w * camera.zoom),
-                int(self.rect.h * camera.zoom)
-            )
-        )
 
-        draw_x = self.rect.x * camera.zoom + camera.x
-        draw_y = self.rect.y * camera.zoom + camera.y
-        
-        if player.rect.x + W > draw_x or player.rect.y + H > draw_y:
-            window.blit(scaled_img, (draw_x, draw_y))
+    def draw(self, surface):
+        surface.blit(self.img, self.rect)
+
 
 class Button(Sprite):
     def __init__(self, x, y, w, h, img, onclick):
@@ -52,20 +42,37 @@ class ShopTile(Sprite):
         bought_costumes.add(self.new_costume)
         
 class SlowTile(Sprite):
-    def __init__(self, x, y, w, h, img, slowing_coof):
-        super().__init__(x, y, w, h, img)
+    def __init__(self, x, y, w, h, img1, img2, slowing_coof):
+        super().__init__(x, y, w, h, img1)
         self.slowing_coof = slowing_coof
+        self.t = 0
+        self.img1 = img1
+        self.img2 = img2
     
     def effect(self, player):
         player.speed = player.base_speed / self.slowing_coof
+    
+    def update(self):
+        self.t += 1
+        if self.t % 10 == 0:
+            self.img = self.img2 if self.img != self.img2 else self.img1
         
 class FastTile(Sprite):
-    def __init__(self, x, y, w, h, img, speeding_coof):
-        super().__init__(x, y, w, h, img)
+    def __init__(self, x, y, w, h, img1, img2, speeding_coof):
+        super().__init__(x, y, w, h, img1)
         self.speeding_coof = speeding_coof
+        self.t = 0
+        self.img1 = img1
+        self.img2 = img2
     
     def effect(self, player):
         player.speed = player.base_speed * self.speeding_coof
+        
+    def update(self):
+        self.t += 1
+        if self.t % 10 == 0:
+            self.img = self.img2 if self.img != self.img2 else self.img1
+    
 
 class MoveTile(Sprite):
     def __init__(self, x, y, w, h, img, direction):
@@ -81,9 +88,12 @@ class MoveTile(Sprite):
             player.rect.x -= 3
         if self.direction == "right":
             player.rect.x += 3
+    
+    def update(self):
+        pass
 
 class Player(Sprite):
-    def __init__(self, x, y, img, speed, scale=64, patrons=30):
+    def __init__(self, x, y, img, speed, scale=64, patrons=30, hp=5):
         self.r_img = pygame.transform.scale(img, (scale, scale))
         self.l_img = pygame.transform.rotate(self.r_img, 180)
         self.u_img = pygame.transform.rotate(self.r_img, 90)
@@ -100,6 +110,7 @@ class Player(Sprite):
         self.wait = 0
         self.shooting_cd = 10
         self.t = 0
+        self.hp = hp
 
     def update(self, obstacles):
         old_x, old_y = self.rect.x, self.rect.y
@@ -198,11 +209,20 @@ def write_info(path, info):
     with open(path, "a", encoding="utf-8") as file:
         file.write(f"{formatted} {info}\n")
 
-def update_player_image():
-    player.r_img = pygame.image.load(f"images/{costume}.png")
+def update_player_costume():
+    img = pygame.image.load(f"images/{costume}.png").convert_alpha()
+
+    player.r_img = pygame.transform.scale(img, (50, 50))
     player.l_img = pygame.transform.rotate(player.r_img, 180)
     player.u_img = pygame.transform.rotate(player.r_img, 90)
     player.d_img = pygame.transform.rotate(player.r_img, 270)
+
+    player.img = player.r_img
+
+    player.speed = tank_data[costume]["Speed"]
+    player.hp = tank_data[costume]["HP"]
+    player.base_speed = player.speed
+
 
 font = pygame.font.SysFont("Century Gothic", 20, True)
 version_txt = font.render("V1.0", True, (0, 0, 0))
@@ -216,8 +236,11 @@ shop_button = Sprite(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Shop.pn
 close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Close.png"))
 buy_slow = ShopTile(100, 100, 150, 210, pygame.image.load("images/BuySlow.png"), 
                     pygame.image.load("images/Buy.png"), "Slow")
+buy_fast = ShopTile(270, 100, 150, 210, pygame.image.load("images/BuyFast.png"), 
+                    pygame.image.load("images/Buy.png"), "Fast")
 player = Player(100, 100, pygame.image.load("images/Player.png"), 5, 50)
 camera = Camera()
+world_surface = pygame.Surface((map_width, map_height)).convert()
 obstacles = []
 tiles = []
 bullets = []
@@ -227,11 +250,20 @@ for row in maze:
         if char == "1":
             obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Wall.png")))
         if char == "2":
-            tiles.append(SlowTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Slow.png"), 1.7))
+            tiles.append(SlowTile(b_x, b_y, b_size, b_size, 
+                                  pygame.image.load("images/Tiles/Slow.png"),
+                                  pygame.image.load("images/Tiles/Slow2.png"),1.7))
         if char == "3":
-            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 2))
+            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 
+                                  pygame.image.load("images/Tiles/Fast2.png"), 2))
         if char == "4":
             tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"), "down"))
+        if char == "5":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"), "up"))
+        if char == "6":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"), "right"))
+        if char == "7":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"), "left"))
         b_x += b_size
     b_y += b_size
     b_x = 0
@@ -244,7 +276,6 @@ bought_costumes = {"Player"}
 
 while running:
     i += 1
-    update_player_image()
     window.fill((0, 0, 0))
     last_mouse_x, last_mouse_y = pygame.mouse.get_pos()
     for event in pygame.event.get():
@@ -267,12 +298,19 @@ while running:
                 menu = True
             if buy_slow.button.rect.collidepoint(x, y):
                 buy_slow.button.onclick()
+            if buy_fast.button.rect.collidepoint(x, y):
+                buy_fast.button.onclick()
         if keys[pygame.K_SPACE]:
             player.fire()
         if keys[pygame.K_1] and "Slow" in bought_costumes:
             costume = "Player"
+            update_player_costume()
         elif keys[pygame.K_2] and "Slow" in bought_costumes:
             costume = "Slow"
+            update_player_costume()
+        elif keys[pygame.K_3] and "Fast" in bought_costumes:
+            costume = "Fast"
+            update_player_costume()
         if event.type == pygame.MOUSEWHEEL:
             camera.zoom += event.y * 0.1
 
@@ -283,51 +321,83 @@ while running:
                 camera.zoom = 2
 
     if menu:
-        menu_bg.draw()
-        play_button.draw()
-        exit_button.draw()
-        shop_button.draw()
+        menu_bg.draw(world_surface)
+        play_button.draw(world_surface)
+        exit_button.draw(world_surface)
+        shop_button.draw(world_surface)
         window.blit(version_txt, (0, 0))
         
         menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 10
         menu_bg.rect.y += (pygame.mouse.get_pos()[1] - last_mouse_y) / 10
+
+        window.blit(world_surface, (0, 0))
     elif shop:
-        menu_bg.draw()
-        close_shop_button.draw()
-        buy_slow.draw()
+        menu_bg.draw(world_surface)
+        close_shop_button.draw(world_surface)
+        
+        buy_slow.draw(world_surface)
+        buy_fast.draw(world_surface)
+        
         if "Slow" not in bought_costumes:
-            buy_slow.button.draw()
+            buy_slow.button.draw(world_surface)
+        if "Fast" not in bought_costumes:
+            buy_fast.button.draw(world_surface)
+        
+        window.blit(world_surface, (0, 0))
     else:
-        game_bg.draw()
-    
+        world_surface.fill((0, 0, 0))
+
+        game_bg.draw(world_surface)
+
         for obstacle in obstacles:
-            obstacle.draw()
-            
+            obstacle.draw(world_surface)
+
+        player.speed = player.base_speed
         for tile in tiles:
-            tile.draw()
+            tile.update()
+            tile.draw(world_surface)
             if player.rect.colliderect(tile.rect):
                 tile.effect(player)
-        
+
         for bullet in bullets:
-            bullet.draw()
             bullet.move(player)
+            bullet.draw(world_surface)
 
-        # 🔥 Очищення після руху
-        bullets = [b for b in bullets if b.alive]
+        bullets[:] = [b for b in bullets if b.alive]
 
+        player.update(obstacles)
+        player.draw(world_surface)
+
+        camera.update(player)
+
+        view_width = int(W / camera.zoom)
+        view_height = int(H / camera.zoom)
+
+        # Центруємо на гравці
+        view_x = int(player.rect.centerx - view_width // 2)
+        view_y = int(player.rect.centery - view_height // 2)
+
+        # Обмежуємо межами карти
+        view_x = max(0, min(map_width - view_width, view_x))
+        view_y = max(0, min(map_height - view_height, view_y))
+
+        view_rect = pygame.Rect(view_x, view_y, view_width, view_height)
+
+        sub_surface = world_surface.subsurface(view_rect).copy()
+
+        scaled_view = pygame.transform.scale(sub_surface, (W, H))
+
+        window.blit(scaled_view, (0, 0))
+
+
+        # UI поверх
         fps = clock.get_fps()
         fps_txt = font.render(f"FPS: {fps:.2f}", True, (255, 255, 255))
         window.blit(fps_txt, (0, 0))
+
         patrons_txt = font.render(f"Patrons: {player.patrons}", True, (255, 255, 255))
         window.blit(patrons_txt, (0, 20))
-        if i % 10 == 0:
-            write_info("log.txt", f"FPS: {fps}")
-        
-        player.update(obstacles)
-        player.draw()
-        player.speed = player.base_speed
-        camera.update(player)
     
     pygame.display.update()
-    clock.tick(60)
+    clock.tick()
 pygame.quit()
