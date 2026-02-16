@@ -37,6 +37,20 @@ class Sprite:
         if player.rect.x + W > draw_x or player.rect.y + H > draw_y:
             window.blit(scaled_img, (draw_x, draw_y))
 
+class Button(Sprite):
+    def __init__(self, x, y, w, h, img, onclick):
+        super().__init__(x, y, w, h, img)
+        self.onclick = onclick
+    
+class ShopTile(Sprite):
+    def __init__(self, x, y, w, h, img, button_img, new_costume):
+        super().__init__(x, y, w, h, img)
+        self.new_costume = new_costume
+        self.button = Button(x+20, h-50+y, w-40, 40, button_img, self.on_button_click)
+    
+    def on_button_click(self):
+        bought_costumes.add(self.new_costume)
+        
 class SlowTile(Sprite):
     def __init__(self, x, y, w, h, img, slowing_coof):
         super().__init__(x, y, w, h, img)
@@ -139,9 +153,7 @@ class Player(Sprite):
                 8,
                 world_mouse
             ))
-            
-        
-            
+                
 class Bullet(Sprite):
     def __init__(self, x, y, w, h, image, speed, target_pos):
         super().__init__(x, y, w, h, image)
@@ -193,7 +205,7 @@ def update_player_image():
     player.d_img = pygame.transform.rotate(player.r_img, 270)
 
 font = pygame.font.SysFont("Century Gothic", 20, True)
-version_txt = font.render("V0.8", True, (0, 0, 0))
+version_txt = font.render("V1.0", True, (0, 0, 0))
 
 bullet_img = pygame.image.load("images/Bullet.png")
 menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
@@ -202,8 +214,8 @@ play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png
 exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
 shop_button = Sprite(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Shop.png"))
 close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Close.png"))
-buy_slow = Sprite(100, 100, 100, 140, pygame.image.load("images/BuySlow.png"))
-buy_slow_button = Sprite(110, 190, 80, 40, pygame.image.load("images/Buy.png"))
+buy_slow = ShopTile(100, 100, 150, 210, pygame.image.load("images/BuySlow.png"), 
+                    pygame.image.load("images/Buy.png"), "Slow")
 player = Player(100, 100, pygame.image.load("images/Player.png"), 5, 50)
 camera = Camera()
 obstacles = []
@@ -253,12 +265,11 @@ while running:
             if close_shop_button.rect.collidepoint(x, y):
                 shop = False
                 menu = True
-            if buy_slow_button.rect.collidepoint(x, y):
-                bought_costumes.add("Slow")
-                print("!!")
+            if buy_slow.button.rect.collidepoint(x, y):
+                buy_slow.button.onclick()
         if keys[pygame.K_SPACE]:
             player.fire()
-        if keys[pygame.K_1]:
+        if keys[pygame.K_1] and "Slow" in bought_costumes:
             costume = "Player"
         elif keys[pygame.K_2] and "Slow" in bought_costumes:
             costume = "Slow"
@@ -285,7 +296,7 @@ while running:
         close_shop_button.draw()
         buy_slow.draw()
         if "Slow" not in bought_costumes:
-            buy_slow_button.draw()
+            buy_slow.button.draw()
     else:
         game_bg.draw()
     
