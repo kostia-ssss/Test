@@ -16,6 +16,7 @@ pygame.display.set_icon(pygame.image.load("images/Player.png"))
 
 pygame.mixer.music.load("sounds/menu_music.mp3")
 # pygame.mixer.music.play(-1)
+# pygame.mixer.music.set_volume(0.6)
 
 class Sprite:
     def __init__(self , x , y , w , h, img):
@@ -25,7 +26,6 @@ class Sprite:
 
     def draw(self, surface):
         surface.blit(self.img, self.rect)
-
 
 class Button(Sprite):
     def __init__(self, x, y, w, h, img, onclick):
@@ -73,11 +73,13 @@ class FastTile(Sprite):
         if self.t % 10 == 0:
             self.img = self.img2 if self.img != self.img2 else self.img1
     
-
 class MoveTile(Sprite):
-    def __init__(self, x, y, w, h, img, direction):
-        super().__init__(x, y, w, h, img)
+    def __init__(self, x, y, w, h, img1, img2, direction):
+        super().__init__(x, y, w, h, img1)
         self.direction = direction
+        self.t = 0
+        self.img1 = img1
+        self.img2 = img2
     
     def effect(self, player):
         if self.direction == "up":
@@ -90,7 +92,9 @@ class MoveTile(Sprite):
             player.rect.x += 3
     
     def update(self):
-        pass
+        self.t += 1
+        if self.t % 10 == 0:
+            self.img = self.img2 if self.img != self.img2 else self.img1
 
 class Player(Sprite):
     def __init__(self, x, y, img, speed, scale=64, patrons=30, hp=5):
@@ -193,6 +197,33 @@ class Bullet(Sprite):
         ):
             self.alive = False
 
+class Turret(Sprite):
+    def __init__(self, x, y, w, h, img, cooldown, bullet_img, bullet_speed, direction):
+        super().__init__(x, y, w, h, img)
+        self.cd = cooldown
+        self.bullet_img = bullet_img
+        self.t = 0
+        self.bullets = []
+        self.bullet_speed = bullet_speed
+        self.dir = direction
+    
+    def update(self):
+        self.t += 1
+        if self.t % self.cd == 0:
+            self.bullets.append(Sprite(self.rect.centerx, self.rect.centery, 10, 10, self.bullet_img))
+        
+        for b in self.bullets:
+            b.draw(world_surface)
+            if self.dir > 0:
+                b.rect.x += self.bullet_speed
+            else:
+                b.rect.x -= self.bullet_speed
+            if b.rect.x > map_width or b.rect.x < 0 or any(b.rect.colliderect(o.rect) for o in obstacles):
+                self.bullets.remove(b)
+            if player.rect.colliderect(b.rect): 
+                player.hp -= 1
+                self.bullets.remove(b)
+
 class Camera:
     def __init__(self):
         self.x = 0
@@ -244,6 +275,7 @@ world_surface = pygame.Surface((map_width, map_height)).convert()
 obstacles = []
 tiles = []
 bullets = []
+turrets = []
 
 for row in maze:
     for char in row:
@@ -257,13 +289,23 @@ for row in maze:
             tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 
                                   pygame.image.load("images/Tiles/Fast2.png"), 2))
         if char == "4":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"), "down"))
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"),
+                                  pygame.image.load("images/Tiles/Down2.png"), "down"))
         if char == "5":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"), "up"))
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"),
+                                  pygame.image.load("images/Tiles/Up2.png"), "up"))
         if char == "6":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"), "right"))
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"),
+                                  pygame.image.load("images/Tiles/Right2.png"), "right"))
         if char == "7":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"), "left"))
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"),
+                                  pygame.image.load("images/Tiles/Left2.png"), "left"))
+        if char == "8":
+            turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretRight.png"),
+                                50, pygame.image.load("images/BadBullet.png"), 2, -1))
+        if char == "9":
+            turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
+                                50, pygame.image.load("images/BadBullet.png"), 2, 1))
         b_x += b_size
     b_y += b_size
     b_x = 0
@@ -271,6 +313,7 @@ for row in maze:
 running = True
 menu = True
 shop = False
+lose = False
 costume = "Player"
 bought_costumes = {"Player"}
 
@@ -344,6 +387,8 @@ while running:
             buy_fast.button.draw(world_surface)
         
         window.blit(world_surface, (0, 0))
+    elif lose:
+        pass
     else:
         world_surface.fill((0, 0, 0))
 
@@ -362,6 +407,10 @@ while running:
         for bullet in bullets:
             bullet.move(player)
             bullet.draw(world_surface)
+        
+        for turret in turrets:
+            turret.update()
+            turret.draw(world_surface)
 
         bullets[:] = [b for b in bullets if b.alive]
 
@@ -390,13 +439,16 @@ while running:
         window.blit(scaled_view, (0, 0))
 
 
-        # UI поверх
+        # UI
         fps = clock.get_fps()
         fps_txt = font.render(f"FPS: {fps:.2f}", True, (255, 255, 255))
         window.blit(fps_txt, (0, 0))
 
         patrons_txt = font.render(f"Patrons: {player.patrons}", True, (255, 255, 255))
         window.blit(patrons_txt, (0, 20))
+
+        hp_txt = font.render(f"HP: {player.hp}", True, (255, 255, 255))
+        window.blit(hp_txt, (0, 40))
     
     pygame.display.update()
     clock.tick()
