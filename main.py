@@ -1,6 +1,7 @@
 from maze import maze
 from tank_data import tank_data
 from datetime import datetime
+from random import randint
 import pygame
 pygame.init()
 
@@ -117,6 +118,8 @@ class Player(Sprite):
         self.hp = hp
 
     def update(self, obstacles):
+        global lose
+        
         old_x, old_y = self.rect.x, self.rect.y
         keys = pygame.key.get_pressed()
 
@@ -150,6 +153,9 @@ class Player(Sprite):
             self.wait = 0
             self.patrons += min(self.max_patrons-self.patrons, 5)
         
+        if self.hp <= 0:
+            lose = True
+        
     def fire(self):
         if self.patrons > 0 and self.t >= self.shooting_cd:
             self.t = 0
@@ -170,7 +176,7 @@ class Player(Sprite):
             ))
                 
 class Bullet(Sprite):
-    def __init__(self, x, y, w, h, image, speed, target_pos):
+    def __init__(self, x, y, w, h, image, speed, target_pos, type="good"):
         super().__init__(x, y, w, h, image)
 
         self.speed = speed
@@ -184,6 +190,7 @@ class Bullet(Sprite):
         self.direction = direction.normalize()
 
         self.alive = True  # 👈 флаг життя
+        self.type = type
 
     def move(self, player):
         self.pos += self.direction * self.speed
@@ -193,9 +200,9 @@ class Bullet(Sprite):
             self.rect.right < 0 or
             self.rect.left > W + player.rect.x or
             self.rect.bottom < 0 or
-            self.rect.top > H + player.rect.y
-        ):
-            self.alive = False
+            self.rect.top > H + player.rect.y or
+            any(self.rect.colliderect(o) for o in obstacles)
+        ): self.alive = False
 
 class Turret(Sprite):
     def __init__(self, x, y, w, h, img, cooldown, bullet_img, bullet_speed, direction):
@@ -223,6 +230,87 @@ class Turret(Sprite):
             if player.rect.colliderect(b.rect): 
                 player.hp -= 1
                 self.bullets.remove(b)
+
+class Enemy(Sprite):
+    def __init__(self, x, y, w, h, img, cooldown, bullet_img, range, speed, see_distance, hp):
+        super().__init__(x, y, w, h, img)
+        self.cooldown = cooldown
+        self.bullet_img = bullet_img
+        self.range = range
+        self.original_img = img
+        self.bullets = []
+        self.t = 0
+        self.speed = speed
+        self.see_distance = see_distance
+        self.hp = hp
+        self.alive = True
+
+    def shoot(self, player):
+        pos = (
+            player.rect.x + randint(-self.range, self.range),
+            player.rect.y + randint(-self.range, self.range)
+        )
+
+        print(pos)
+
+        self.bullets.append(
+            Bullet(
+                self.rect.centerx,
+                self.rect.centery,
+                10, 10,
+                self.bullet_img,
+                4,
+                pos,
+                "bad"
+            )
+        )
+
+    def move(self, player):
+        self.original = self.rect.copy()
+        
+        dh = self.rect.x - player.rect.x
+        dv = self.rect.y - player.rect.y
+
+        if abs(dh) > abs(dv):
+            if dh > 0:
+                self.rect.x -= self.speed
+                self.img = pygame.transform.rotate(self.original_img, 180)
+            elif dh < 0:
+                self.rect.x += self.speed
+                self.img = self.original_img
+        else:
+            if dv > 0:
+                self.rect.y -= self.speed
+                self.img = pygame.transform.rotate(self.original_img, 90)
+            elif dv < 0:
+                self.rect.y += self.speed
+                self.img = pygame.transform.rotate(self.original_img, 270)
+        
+        self.img = pygame.transform.scale(self.img, (self.rect.w, self.rect.h))
+        
+        if any(self.rect.colliderect(o) for o in obstacles):
+            self.rect = self.original
+        
+    def update(self):
+        self.t += 1
+        
+        for b in self.bullets:
+            b.draw(world_surface)
+            b.move(player)
+        
+        if abs(self.rect.x-player.rect.x) < self.see_distance and abs(self.rect.y-player.rect.y) < self.see_distance:
+            self.move(player)
+            if self.t % self.cooldown == 0:
+                self.shoot(player)
+        
+        for b in bullets:
+            if self.rect.colliderect(b):
+                self.hp -= 1
+                bullets.remove(b)
+        
+        if self.hp <= 0: self.alive = False
+            
+        self.bullets[:] = [b for b in self.bullets if b.alive]
 
 class Camera:
     def __init__(self):
@@ -254,6 +342,10 @@ def update_player_costume():
     player.hp = tank_data[costume]["HP"]
     player.base_speed = player.speed
 
+def go_to_menu():
+    global lose, menu
+    lose = False
+    menu = True
 
 font = pygame.font.SysFont("Century Gothic", 20, True)
 version_txt = font.render("V1.0", True, (0, 0, 0))
@@ -261,14 +353,18 @@ version_txt = font.render("V1.0", True, (0, 0, 0))
 bullet_img = pygame.image.load("images/Bullet.png")
 menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
 game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
+lose_bg = Sprite(0, 0, W, H, pygame.image.load("images/LoseBG.png"))
 play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png"))
 exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
 shop_button = Sprite(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Shop.png"))
 close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Close.png"))
+enemy = Enemy(1100, 1000, 50, 50, pygame.image.load("images/Enemy.png"), 
+              70, pygame.image.load("images/BadBullet.png"), 150, 1, 300, 5)
 buy_slow = ShopTile(100, 100, 150, 210, pygame.image.load("images/BuySlow.png"), 
                     pygame.image.load("images/Buy.png"), "Slow")
 buy_fast = ShopTile(270, 100, 150, 210, pygame.image.load("images/BuyFast.png"), 
                     pygame.image.load("images/Buy.png"), "Fast")
+to_menu = Button(W/2, H/2, 100, 40, pygame.image.load("images/Menu.png"), go_to_menu)
 player = Player(100, 100, pygame.image.load("images/Player.png"), 5, 50)
 camera = Camera()
 world_surface = pygame.Surface((map_width, map_height)).convert()
@@ -343,6 +439,8 @@ while running:
                 buy_slow.button.onclick()
             if buy_fast.button.rect.collidepoint(x, y):
                 buy_fast.button.onclick()
+            if to_menu.rect.collidepoint(x, y):
+                to_menu.onclick()
         if keys[pygame.K_SPACE]:
             player.fire()
         if keys[pygame.K_1] and "Slow" in bought_costumes:
@@ -388,7 +486,13 @@ while running:
         
         window.blit(world_surface, (0, 0))
     elif lose:
-        pass
+        world_surface.fill((0, 0, 0))
+        lose_bg.draw(world_surface)
+        to_menu.draw(world_surface)
+        window.blit(world_surface, (0, 0))
+        pygame.display.update()
+        clock.tick()
+        continue
     else:
         world_surface.fill((0, 0, 0))
 
@@ -408,6 +512,11 @@ while running:
             bullet.move(player)
             bullet.draw(world_surface)
         
+        for bullet in enemy.bullets:
+            if player.rect.colliderect(bullet.rect):
+                player.hp -= 1
+                bullet.alive = False
+        
         for turret in turrets:
             turret.update()
             turret.draw(world_surface)
@@ -416,6 +525,10 @@ while running:
 
         player.update(obstacles)
         player.draw(world_surface)
+        
+        if enemy.alive:
+            enemy.draw(world_surface)
+            enemy.update()
 
         camera.update(player)
 
