@@ -8,6 +8,7 @@ pygame.init()
 W, H = 800, 600
 b_size, b_x, b_y = 64, 0, 0
 i = 0
+score = 0
 map_width, map_height = len(maze[0]) * b_size, len(maze) * b_size
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
@@ -116,9 +117,10 @@ class Player(Sprite):
         self.shooting_cd = 10
         self.t = 0
         self.hp = hp
+        self.max_hp = hp
 
     def update(self, obstacles):
-        global lose
+        global lose, score
         
         old_x, old_y = self.rect.x, self.rect.y
         keys = pygame.key.get_pressed()
@@ -154,6 +156,7 @@ class Player(Sprite):
             self.patrons += min(self.max_patrons-self.patrons, 5)
         
         if self.hp <= 0:
+            set_score(score)
             lose = True
         
     def fire(self):
@@ -292,6 +295,7 @@ class Enemy(Sprite):
             self.rect = self.original
         
     def update(self):
+        global score
         self.t += 1
         
         for b in self.bullets:
@@ -306,11 +310,37 @@ class Enemy(Sprite):
         for b in bullets:
             if self.rect.colliderect(b):
                 self.hp -= 1
+                score += 1
                 bullets.remove(b)
         
         if self.hp <= 0: self.alive = False
             
         self.bullets[:] = [b for b in self.bullets if b.alive]
+
+class EnemySpawner:
+    def __init__(self, x, y, cooldown, max_enemies):
+        self.x = x
+        self.y = y
+        self.cooldown = cooldown
+        self.max_enemies = max_enemies
+        self.enemies = []
+        self.t = 0
+    
+    def spawn(self):
+        self.enemies.append(Enemy(self.x+randint(-100, 100), self.y+randint(-100, 100), 
+                                  50, 50, pygame.image.load("images/Enemy.png"), 
+                                  70, pygame.image.load("images/BadBullet.png"), 150, 1, 300, 5))
+    
+    def update(self):
+        self.t += 1
+        
+        for e in self.enemies:
+            e.draw(world_surface)
+            e.update()
+        
+        if self.t % self.cooldown == 0 and len(self.enemies) < self.max_enemies:
+            self.spawn()
+            
 
 class Camera:
     def __init__(self):
@@ -338,17 +368,64 @@ def update_player_costume():
 
     player.img = player.r_img
 
-    player.speed = tank_data[costume]["Speed"]
-    player.hp = tank_data[costume]["HP"]
-    player.base_speed = player.speed
+    # 🔥 Зберігаємо відсоток HP
+    hp_percent = player.hp / player.max_hp
+
+    # Нові характеристики
+    player.max_hp = tank_data[costume]["HP"]
+    player.base_speed = tank_data[costume]["Speed"]
+    player.speed = player.base_speed
+
+    # Перераховуємо HP
+    player.hp = max(1, round(player.max_hp * hp_percent)) if hp_percent > 0 else 0
+
 
 def go_to_menu():
     global lose, menu
     lose = False
     menu = True
 
+def fade_in(screen, width, height):
+    fade_s = pygame.Surface((width, height)).convert()
+    fade_s.fill((0, 0, 0))
+
+    for a in range(0, 256, 5):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+        fade_s.set_alpha(a)
+        screen.blit(fade_s, (0, 0))
+        pygame.display.update()
+        pygame.time.delay(30)
+
+
+def fade_out(screen, width, height):
+    fade_s = pygame.Surface((width, height)).convert()
+    fade_s.fill((0, 0, 0))
+
+    for a in range(255, -1, -5):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+        fade_s.set_alpha(a)
+        screen.blit(fade_s, (0, 0))
+        pygame.display.update()
+        pygame.time.delay(30)
+
+def get_previous_score():
+    with open("score.txt", "r", encoding="utf-8") as file: 
+        return int(file.read())
+
+def set_score(score):
+    with open("score.txt", "w", encoding="utf-8") as file: 
+        file.write(str(score))
+
 font = pygame.font.SysFont("Century Gothic", 20, True)
-version_txt = font.render("V1.0", True, (0, 0, 0))
+version_txt = font.render("V1.4", True, (0, 0, 0))
 
 bullet_img = pygame.image.load("images/Bullet.png")
 menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
@@ -358,8 +435,8 @@ play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png
 exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
 shop_button = Sprite(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Shop.png"))
 close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Close.png"))
-enemy = Enemy(1100, 1000, 50, 50, pygame.image.load("images/Enemy.png"), 
-              70, pygame.image.load("images/BadBullet.png"), 150, 1, 300, 5)
+close_game_button = Sprite(W-50, 0, 50, 50, pygame.image.load("images/Close.png"))
+
 buy_slow = ShopTile(100, 100, 150, 210, pygame.image.load("images/BuySlow.png"), 
                     pygame.image.load("images/Buy.png"), "Slow")
 buy_fast = ShopTile(270, 100, 150, 210, pygame.image.load("images/BuyFast.png"), 
@@ -372,6 +449,7 @@ obstacles = []
 tiles = []
 bullets = []
 turrets = []
+spawners = []
 
 for row in maze:
     for char in row:
@@ -402,6 +480,8 @@ for row in maze:
         if char == "9":
             turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
                                 50, pygame.image.load("images/BadBullet.png"), 2, 1))
+        if char == "#":
+            spawners.append(EnemySpawner(b_x, b_y, 150, 2))
         b_x += b_size
     b_y += b_size
     b_x = 0
@@ -410,8 +490,14 @@ running = True
 menu = True
 shop = False
 lose = False
+fade_alpha = 0
+fading = False
+fade_direction = 1  # 1 = затемнення, -1 = освітлення
+fade_speed = 8
+next_state = None
 costume = "Player"
 bought_costumes = {"Player"}
+score = get_previous_score()
 
 while running:
     i += 1
@@ -423,35 +509,64 @@ while running:
             running = False
         if event.type == pygame.MOUSEBUTTONDOWN:
             x, y = event.pos
-            if play_button.rect.collidepoint(x, y):
-                menu = False
-                write_info("log.txt", "CLOSED MENU")
-            if shop_button.rect.collidepoint(x, y):
-                menu = False
-                shop = True
-                write_info("log.txt", "OPENED SETTINGS")
-            if exit_button.rect.collidepoint(x, y):
-                running = False
-            if close_shop_button.rect.collidepoint(x, y):
-                shop = False
-                menu = True
-            if buy_slow.button.rect.collidepoint(x, y):
-                buy_slow.button.onclick()
-            if buy_fast.button.rect.collidepoint(x, y):
-                buy_fast.button.onclick()
-            if to_menu.rect.collidepoint(x, y):
-                to_menu.onclick()
+
+            if menu:
+                if play_button.rect.collidepoint(x, y):
+                    fading = True
+                    fade_direction = 1
+                    fade_alpha = 0
+                    next_state = "game"
+
+                elif shop_button.rect.collidepoint(x, y):
+                    fading = True
+                    fade_direction = 1
+                    fade_alpha = 0
+                    next_state = "shop"
+
+                elif exit_button.rect.collidepoint(x, y):
+                    running = False
+
+            elif shop:
+                if close_shop_button.rect.collidepoint(x, y):
+                    fading = True
+                    fade_direction = 1
+                    fade_alpha = 0
+                    next_state = "menu"
+
+                elif buy_slow.button.rect.collidepoint(x, y) and score >= 10:
+                    buy_slow.button.onclick()
+                    score -= 10
+
+                elif buy_fast.button.rect.collidepoint(x, y) and score >= 10:
+                    buy_fast.button.onclick()
+                    score -= 10
+
+            elif lose:
+                if to_menu.rect.collidepoint(x, y):
+                    to_menu.onclick()
+                    player.hp = player.max_hp
+            
+            else:
+                if close_game_button.rect.collidepoint(x, y):
+                    fading = True
+                    fade_direction = 1
+                    fade_alpha = 0
+                    next_state = "menu"
+
         if keys[pygame.K_SPACE]:
             player.fire()
-        if keys[pygame.K_1] and "Slow" in bought_costumes:
-            costume = "Player"
-            update_player_costume()
-        elif keys[pygame.K_2] and "Slow" in bought_costumes:
-            costume = "Slow"
-            update_player_costume()
-        elif keys[pygame.K_3] and "Fast" in bought_costumes:
-            costume = "Fast"
-            update_player_costume()
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_1 and "Player" in bought_costumes:
+                costume = "Player"
+                update_player_costume()
+
+            elif event.key == pygame.K_2 and "Slow" in bought_costumes:
+                costume = "Slow"
+                update_player_costume()
+
+            elif event.key == pygame.K_3 and "Fast" in bought_costumes:
+                costume = "Fast"
+                update_player_costume()
         if event.type == pygame.MOUSEWHEEL:
             camera.zoom += event.y * 0.1
 
@@ -490,9 +605,6 @@ while running:
         lose_bg.draw(world_surface)
         to_menu.draw(world_surface)
         window.blit(world_surface, (0, 0))
-        pygame.display.update()
-        clock.tick()
-        continue
     else:
         world_surface.fill((0, 0, 0))
 
@@ -512,10 +624,19 @@ while running:
             bullet.move(player)
             bullet.draw(world_surface)
         
-        for bullet in enemy.bullets:
-            if player.rect.colliderect(bullet.rect):
-                player.hp -= 1
-                bullet.alive = False
+        for spawner in spawners:
+            spawner.update()
+            for enemy in spawner.enemies:
+                if enemy.alive:
+                    enemy.draw(world_surface)
+                    enemy.update()
+                else:
+                    spawner.enemies.remove(enemy)
+                    
+                for bullet in enemy.bullets:
+                    if player.rect.colliderect(bullet.rect):
+                        player.hp -= 1
+                        bullet.alive = False
         
         for turret in turrets:
             turret.update()
@@ -523,12 +644,9 @@ while running:
 
         bullets[:] = [b for b in bullets if b.alive]
 
+        
         player.update(obstacles)
         player.draw(world_surface)
-        
-        if enemy.alive:
-            enemy.draw(world_surface)
-            enemy.update()
 
         camera.update(player)
 
@@ -553,6 +671,8 @@ while running:
 
 
         # UI
+        close_game_button.draw(window)
+        
         fps = clock.get_fps()
         fps_txt = font.render(f"FPS: {fps:.2f}", True, (255, 255, 255))
         window.blit(fps_txt, (0, 0))
@@ -562,7 +682,42 @@ while running:
 
         hp_txt = font.render(f"HP: {player.hp}", True, (255, 255, 255))
         window.blit(hp_txt, (0, 40))
+
+        hp_txt = font.render(f"Score: {score}", True, (255, 255, 255))
+        window.blit(hp_txt, (0, 60))
     
+    if fading:
+        fade_surface = pygame.Surface((W, H))
+        fade_surface.fill((0, 0, 0))
+        fade_surface.set_alpha(fade_alpha)
+        window.blit(fade_surface, (0, 0))
+
+        fade_alpha += fade_speed * fade_direction
+
+        # Коли повністю затемнилось
+        if fade_alpha >= 255:
+            fade_alpha = 255
+
+            # 👇 тут міняємо стан
+            if next_state == "game":
+                menu = False
+                shop = False
+            if next_state == "shop":
+                menu = False
+                shop = True
+            if next_state == "menu":
+                menu = True
+                shop = False
+
+            fade_direction = -1  # починаємо освітлення
+
+        # Коли повністю освітлилось
+        if fade_alpha <= 0 and fade_direction == -1:
+            fade_alpha = 0
+            fading = False
+            next_state = None
+
+
     pygame.display.update()
     clock.tick()
 pygame.quit()
