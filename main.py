@@ -1,24 +1,31 @@
-from maze import maze
+from maze import all_levels
 from tank_data import tank_data
 from datetime import datetime
 from random import randint
+import math
 import pygame
 pygame.init()
 
 W, H = 800, 600
 b_size, b_x, b_y = 64, 0, 0
+low_fps = False
 i = 0
 score = 0
-map_width, map_height = len(maze[0]) * b_size, len(maze) * b_size
+obstacles = []
+tiles = []
+bullets = []
+turrets = []
+spawners = []
+map_width, map_height = len(all_levels[0][0]) * b_size, len(all_levels[0]) * b_size
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 
 pygame.display.set_caption("Battle City Remake")
-pygame.display.set_icon(pygame.image.load("images/Player.png"))
+pygame.display.set_icon(pygame.image.load("images/Tanks/Player.png"))
 
 pygame.mixer.music.load("sounds/menu_music.mp3")
-# pygame.mixer.music.play(-1)
-# pygame.mixer.music.set_volume(0.6)
+pygame.mixer.music.play(-1)
+pygame.mixer.music.set_volume(0.3)
 
 class Sprite:
     def __init__(self , x , y , w , h, img):
@@ -33,6 +40,27 @@ class Button(Sprite):
     def __init__(self, x, y, w, h, img, onclick):
         super().__init__(x, y, w, h, img)
         self.onclick = onclick
+        self.t = 0
+        
+        self.base_w = w
+        self.base_h = h
+
+    def update(self):
+        self.t += 0.01
+        
+        scale_offset = math.sin(self.t) * 5
+        
+        new_w = int(self.base_w + scale_offset)
+        new_h = int(self.base_h + scale_offset)
+        
+        self.rect.w = new_w
+        self.rect.h = new_h
+        
+        self.img = pygame.transform.scale(
+            self.original_img, 
+            (new_w, new_h)
+        )
+        
     
 class ShopTile(Sprite):
     def __init__(self, x, y, w, h, img, button_img, new_costume):
@@ -56,7 +84,7 @@ class SlowTile(Sprite):
     
     def update(self):
         self.t += 1
-        if self.t % 10 == 0:
+        if self.t % 10 == 0 and not low_fps:
             self.img = self.img2 if self.img != self.img2 else self.img1
         
 class FastTile(Sprite):
@@ -72,7 +100,7 @@ class FastTile(Sprite):
         
     def update(self):
         self.t += 1
-        if self.t % 10 == 0:
+        if self.t % 10 == 0 and not low_fps:
             self.img = self.img2 if self.img != self.img2 else self.img1
     
 class MoveTile(Sprite):
@@ -95,7 +123,7 @@ class MoveTile(Sprite):
     
     def update(self):
         self.t += 1
-        if self.t % 10 == 0:
+        if self.t % 10 == 0 and not low_fps:
             self.img = self.img2 if self.img != self.img2 else self.img1
 
 class Player(Sprite):
@@ -159,14 +187,14 @@ class Player(Sprite):
             set_score(score)
             lose = True
         
-    def fire(self):
+    def fire(self, view_x, view_y):
         if self.patrons > 0 and self.t >= self.shooting_cd:
             self.t = 0
             self.patrons -= 1
             mouse_pos = pygame.mouse.get_pos()
             world_mouse = (
-                (mouse_pos[0] - camera.x) / camera.zoom,
-                (mouse_pos[1] - camera.y) / camera.zoom
+                mouse_pos[0] / camera.zoom + view_x,
+                mouse_pos[1] / camera.zoom + view_y
             )
 
             bullets.append(Bullet(
@@ -313,6 +341,8 @@ class Enemy(Sprite):
                 score += 1
                 bullets.remove(b)
         
+        if any(self.rect.colliderect(o) for o in obstacles):
+            self.rect.y += 1
         if self.hp <= 0: self.alive = False
             
         self.bullets[:] = [b for b in self.bullets if b.alive]
@@ -328,8 +358,9 @@ class EnemySpawner:
     
     def spawn(self):
         self.enemies.append(Enemy(self.x+randint(-100, 100), self.y+randint(-100, 100), 
-                                  50, 50, pygame.image.load("images/Enemy.png"), 
-                                  70, pygame.image.load("images/BadBullet.png"), 150, 1, 300, 5))
+                                  50, 50, pygame.image.load("images/Tanks/Enemy.png"), 
+                                  70, pygame.image.load("images/Bullets/BadBullet.png"), 
+                                  150, 1, 300, 5))
     
     def update(self):
         self.t += 1
@@ -357,9 +388,12 @@ def write_info(path, info):
     formatted = f"[{now.strftime('%d.%m.%Y')}] [{now.strftime('%H:%M')}]"
     with open(path, "a", encoding="utf-8") as file:
         file.write(f"{formatted} {info}\n")
+        print("AAA")
 
 def update_player_costume():
-    img = pygame.image.load(f"images/{costume}.png").convert_alpha()
+    global bullet_img
+    img = pygame.image.load(f"images/Tanks/{costume}.png").convert_alpha()
+    bullet_img = pygame.image.load(f"images/Bullets/{costume}Bullet.png").convert_alpha()
 
     player.r_img = pygame.transform.scale(img, (50, 50))
     player.l_img = pygame.transform.rotate(player.r_img, 180)
@@ -424,70 +458,90 @@ def set_score(score):
     with open("score.txt", "w", encoding="utf-8") as file: 
         file.write(str(score))
 
+def load_level(index):
+    global map_width, map_height, b_x, b_y
+    level = all_levels[index]
+    map_width, map_height = len(level[0]) * b_size, len(level) * b_size
+    obstacles.clear()
+    tiles.clear()
+    bullets.clear()
+    turrets.clear()
+    spawners.clear()
+    for row in level:
+        for char in row:
+            if char == "1":
+                obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Wall.png")))
+            if char == "2":
+                tiles.append(SlowTile(b_x, b_y, b_size, b_size, 
+                                    pygame.image.load("images/Tiles/Slow.png"),
+                                    pygame.image.load("images/Tiles/Slow2.png"),1.7))
+            if char == "3":
+                tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 
+                                    pygame.image.load("images/Tiles/Fast2.png"), 2))
+            if char == "4":
+                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"),
+                                    pygame.image.load("images/Tiles/Down2.png"), "down"))
+            if char == "5":
+                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"),
+                                    pygame.image.load("images/Tiles/Up2.png"), "up"))
+            if char == "6":
+                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"),
+                                    pygame.image.load("images/Tiles/Right2.png"), "right"))
+            if char == "7":
+                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"),
+                                    pygame.image.load("images/Tiles/Left2.png"), "left"))
+            if char == "8":
+                turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretRight.png"),
+                                    50, pygame.image.load("images/Bullets/BadBullet.png"), 2, -1))
+            if char == "9":
+                turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
+                                    50, pygame.image.load("images/Bullets/BadBullet.png"), 2, 1))
+            if char == "#":
+                spawners.append(EnemySpawner(b_x, b_y, 150, 2))
+            b_x += b_size
+        b_y += b_size
+        b_x = 0
+
+def start_game():
+    global menu
+    menu = False
+
+def exit_game():
+    global running
+    running = False
+
+def open_shop():
+    global shop, menu
+    menu = False
+    shop = True
+
 font = pygame.font.SysFont("Century Gothic", 20, True)
-version_txt = font.render("V1.4", True, (0, 0, 0))
+version_txt = font.render("V1.5", True, (0, 0, 0))
 
-bullet_img = pygame.image.load("images/Bullet.png")
-menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG.png"))
-game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/GameBG.png"))
-lose_bg = Sprite(0, 0, W, H, pygame.image.load("images/LoseBG.png"))
-play_button = Sprite(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Play.png"))
-exit_button = Sprite(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Exit.png"))
-shop_button = Sprite(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Shop.png"))
-close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Close.png"))
-close_game_button = Sprite(W-50, 0, 50, 50, pygame.image.load("images/Close.png"))
+bullet_img = pygame.image.load("images/Bullets/PlayerBullet.png")
+menu_bg = Sprite(-W/2, -H/2, 2*W, 2*H, pygame.image.load("images/BG/BG.png"))
+game_bg = Sprite(0, 0, map_width, map_height, pygame.image.load("images/BG/GameBG.png"))
+lose_bg = Sprite(0, 0, W, H, pygame.image.load("images/BG/LoseBG.png"))
+play_button = Button(W/2-85, H/2-35, 170, 70, pygame.image.load("images/Buttons/Play.png"), start_game)
+exit_button = Button(W/2-85, H/2+55, 170, 70, pygame.image.load("images/Buttons/Exit.png"), exit_game)
+shop_button = Button(W/2-85, H/2+145, 170, 70, pygame.image.load("images/Buttons/Shop.png"), open_shop)
+close_shop_button = Sprite(0, 0, 50, 50, pygame.image.load("images/Buttons/Close.png"))
+close_game_button = Sprite(W-50, 0, 50, 50, pygame.image.load("images/Buttons/Close.png"))
 
-buy_slow = ShopTile(100, 100, 150, 210, pygame.image.load("images/BuySlow.png"), 
-                    pygame.image.load("images/Buy.png"), "Slow")
-buy_fast = ShopTile(270, 100, 150, 210, pygame.image.load("images/BuyFast.png"), 
-                    pygame.image.load("images/Buy.png"), "Fast")
-to_menu = Button(W/2, H/2, 100, 40, pygame.image.load("images/Menu.png"), go_to_menu)
-player = Player(100, 100, pygame.image.load("images/Player.png"), 5, 50)
+buy_slow = ShopTile(100, 100, 150, 210, pygame.image.load("images/ShopTiles/BuySlow.png"), 
+                    pygame.image.load("images/Buttons/Buy.png"), "Slow")
+buy_fast = ShopTile(270, 100, 150, 210, pygame.image.load("images/ShopTiles/BuyFast.png"), 
+                    pygame.image.load("images/Buttons/Buy.png"), "Fast")
+buy_hyper = ShopTile(440, 100, 150, 210, pygame.image.load("images/ShopTiles/BuyHyper.png"), 
+                    pygame.image.load("images/Buttons/Buy.png"), "Hyper")
+to_menu = Button(W/2, H/2, 100, 40, pygame.image.load("images/Buttons/Menu.png"), go_to_menu)
+player = Player(75, 75, pygame.image.load("images/Tanks/Player.png"), 5, 50)
 camera = Camera()
 world_surface = pygame.Surface((map_width, map_height)).convert()
-obstacles = []
-tiles = []
-bullets = []
-turrets = []
-spawners = []
-
-for row in maze:
-    for char in row:
-        if char == "1":
-            obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Wall.png")))
-        if char == "2":
-            tiles.append(SlowTile(b_x, b_y, b_size, b_size, 
-                                  pygame.image.load("images/Tiles/Slow.png"),
-                                  pygame.image.load("images/Tiles/Slow2.png"),1.7))
-        if char == "3":
-            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 
-                                  pygame.image.load("images/Tiles/Fast2.png"), 2))
-        if char == "4":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"),
-                                  pygame.image.load("images/Tiles/Down2.png"), "down"))
-        if char == "5":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"),
-                                  pygame.image.load("images/Tiles/Up2.png"), "up"))
-        if char == "6":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"),
-                                  pygame.image.load("images/Tiles/Right2.png"), "right"))
-        if char == "7":
-            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"),
-                                  pygame.image.load("images/Tiles/Left2.png"), "left"))
-        if char == "8":
-            turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretRight.png"),
-                                50, pygame.image.load("images/BadBullet.png"), 2, -1))
-        if char == "9":
-            turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
-                                50, pygame.image.load("images/BadBullet.png"), 2, 1))
-        if char == "#":
-            spawners.append(EnemySpawner(b_x, b_y, 150, 2))
-        b_x += b_size
-    b_y += b_size
-    b_x = 0
 
 running = True
 menu = True
+levels_menu = False
 shop = False
 lose = False
 fade_alpha = 0
@@ -498,15 +552,18 @@ next_state = None
 costume = "Player"
 bought_costumes = {"Player"}
 score = get_previous_score()
+load_level(0)
 
 while running:
     i += 1
     window.fill((0, 0, 0))
     last_mouse_x, last_mouse_y = pygame.mouse.get_pos()
+    
     for event in pygame.event.get():
         keys = pygame.key.get_pressed()
         if event.type == pygame.QUIT:
             running = False
+            
         if event.type == pygame.MOUSEBUTTONDOWN:
             x, y = event.pos
 
@@ -540,6 +597,10 @@ while running:
                 elif buy_fast.button.rect.collidepoint(x, y) and score >= 10:
                     buy_fast.button.onclick()
                     score -= 10
+                
+                elif buy_hyper.button.rect.collidepoint(x, y) and score >= 60:
+                    buy_hyper.button.onclick()
+                    score -= 60
 
             elif lose:
                 if to_menu.rect.collidepoint(x, y):
@@ -548,13 +609,18 @@ while running:
             
             else:
                 if close_game_button.rect.collidepoint(x, y):
+                    set_score(score)
                     fading = True
                     fade_direction = 1
                     fade_alpha = 0
                     next_state = "menu"
 
         if keys[pygame.K_SPACE]:
-            player.fire()
+            player.fire(view_x, view_y)
+            
+        if keys[pygame.K_LSHIFT] and keys[pygame.K_TAB] and keys[pygame.K_w]:
+            score += 1000000
+            
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_1 and "Player" in bought_costumes:
                 costume = "Player"
@@ -567,6 +633,11 @@ while running:
             elif event.key == pygame.K_3 and "Fast" in bought_costumes:
                 costume = "Fast"
                 update_player_costume()
+            
+            elif event.key == pygame.K_4 and "Hyper" in bought_costumes:
+                costume = "Hyper"
+                update_player_costume()
+                
         if event.type == pygame.MOUSEWHEEL:
             camera.zoom += event.y * 0.1
 
@@ -583,28 +654,38 @@ while running:
         shop_button.draw(world_surface)
         window.blit(version_txt, (0, 0))
         
+        play_button.update()
+        exit_button.update()
+        shop_button.update()
+        
         menu_bg.rect.x += (pygame.mouse.get_pos()[0] - last_mouse_x) / 10
         menu_bg.rect.y += (pygame.mouse.get_pos()[1] - last_mouse_y) / 10
 
         window.blit(world_surface, (0, 0))
+        
     elif shop:
         menu_bg.draw(world_surface)
         close_shop_button.draw(world_surface)
         
         buy_slow.draw(world_surface)
         buy_fast.draw(world_surface)
+        buy_hyper.draw(world_surface)
         
         if "Slow" not in bought_costumes:
             buy_slow.button.draw(world_surface)
         if "Fast" not in bought_costumes:
             buy_fast.button.draw(world_surface)
+        if "Hyper" not in bought_costumes:
+            buy_hyper.button.draw(world_surface)
         
         window.blit(world_surface, (0, 0))
+        
     elif lose:
         world_surface.fill((0, 0, 0))
         lose_bg.draw(world_surface)
         to_menu.draw(world_surface)
         window.blit(world_surface, (0, 0))
+        
     else:
         world_surface.fill((0, 0, 0))
 
@@ -683,8 +764,8 @@ while running:
         hp_txt = font.render(f"HP: {player.hp}", True, (255, 255, 255))
         window.blit(hp_txt, (0, 40))
 
-        hp_txt = font.render(f"Score: {score}", True, (255, 255, 255))
-        window.blit(hp_txt, (0, 60))
+        score_txt = font.render(f"Score: {score}", True, (255, 255, 255))
+        window.blit(score_txt, (0, 60))
     
     if fading:
         fade_surface = pygame.Surface((W, H))
@@ -702,12 +783,15 @@ while running:
             if next_state == "game":
                 menu = False
                 shop = False
+                write_info("log.txt", "CLOSED MENU")
             if next_state == "shop":
                 menu = False
                 shop = True
+                write_info("log.txt", "OPENED SHOP")
             if next_state == "menu":
                 menu = True
                 shop = False
+                write_info("log.txt", "OPENED MENU")
 
             fade_direction = -1  # починаємо освітлення
 
@@ -717,7 +801,8 @@ while running:
             fading = False
             next_state = None
 
-
+    write_info("log.txt", f"FPS: {round(clock.get_fps(), 2)}")
+    
     pygame.display.update()
-    clock.tick()
+    clock.tick(60)
 pygame.quit()
