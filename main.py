@@ -2,6 +2,7 @@ from maze import all_levels
 from tank_data import tank_data
 from datetime import datetime
 from random import randint
+from generator import generate
 import math
 import pygame
 pygame.init()
@@ -17,6 +18,7 @@ bullets = []
 turrets = []
 spawners = []
 map_width, map_height = len(all_levels[0][0]) * b_size, len(all_levels[0]) * b_size
+level = generate((25, 25), 6, (2, 3), (7, 8))
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 
@@ -24,8 +26,8 @@ pygame.display.set_caption("Battle City Remake")
 pygame.display.set_icon(pygame.image.load("images/Tanks/Player.png"))
 
 pygame.mixer.music.load("sounds/menu_music.mp3")
-pygame.mixer.music.play(-1)
-pygame.mixer.music.set_volume(0.3)
+# pygame.mixer.music.play(-1)
+# pygame.mixer.music.set_volume(0.3)
 
 class Sprite:
     def __init__(self , x , y , w , h, img):
@@ -277,13 +279,10 @@ class Enemy(Sprite):
         self.alive = True
 
     def shoot(self, player):
-        pos = (
-            player.rect.x + randint(-self.range, self.range),
-            player.rect.y + randint(-self.range, self.range)
+        target_pos = (
+            player.rect.centerx + randint(-self.range, self.range),
+            player.rect.centery + randint(-self.range, self.range)
         )
-
-        print(pos)
-
         self.bullets.append(
             Bullet(
                 self.rect.centerx,
@@ -291,14 +290,13 @@ class Enemy(Sprite):
                 10, 10,
                 self.bullet_img,
                 4,
-                pos,
+                target_pos,
                 "bad"
             )
         )
 
     def move(self, player):
-        self.original = self.rect.copy()
-        
+        original = self.rect.copy()
         dh = self.rect.x - player.rect.x
         dv = self.rect.y - player.rect.y
 
@@ -316,36 +314,41 @@ class Enemy(Sprite):
             elif dv < 0:
                 self.rect.y += self.speed
                 self.img = pygame.transform.rotate(self.original_img, 270)
-        
+
         self.img = pygame.transform.scale(self.img, (self.rect.w, self.rect.h))
-        
-        if any(self.rect.colliderect(o) for o in obstacles):
-            self.rect = self.original
-        
-    def update(self):
-        global score
+
+        if any(self.rect.colliderect(o.rect) for o in obstacles):
+            self.rect = original
+
+    def update(self, player):
         self.t += 1
-        
+
+        # Оновлюємо кулі ворога
         for b in self.bullets:
-            b.draw(world_surface)
             b.move(player)
-        
-        if abs(self.rect.x-player.rect.x) < self.see_distance and abs(self.rect.y-player.rect.y) < self.see_distance:
+            b.draw(world_surface)
+            if player.rect.colliderect(b.rect):
+                player.hp -= 1
+                b.alive = False
+
+        # Рух і стрільба по гравцю
+        if abs(self.rect.x - player.rect.x) < self.see_distance and abs(self.rect.y - player.rect.y) < self.see_distance:
             self.move(player)
             if self.t % self.cooldown == 0:
                 self.shoot(player)
-        
+
+        # Попадання куль гравця
         for b in bullets:
-            if self.rect.colliderect(b):
+            if self.rect.colliderect(b.rect):
                 self.hp -= 1
                 score += 1
-                bullets.remove(b)
-        
-        if any(self.rect.colliderect(o) for o in obstacles):
-            self.rect.y += 1
-        if self.hp <= 0: self.alive = False
-            
-        self.bullets[:] = [b for b in self.bullets if b.alive]
+                b.alive = False
+
+        # Видаляємо мертві кулі
+        self.bullets = [b for b in self.bullets if b.alive]
+
+        if self.hp <= 0:
+            self.alive = False
 
 class EnemySpawner:
     def __init__(self, x, y, cooldown, max_enemies):
@@ -355,23 +358,37 @@ class EnemySpawner:
         self.max_enemies = max_enemies
         self.enemies = []
         self.t = 0
-    
+
     def spawn(self):
-        self.enemies.append(Enemy(self.x+randint(-100, 100), self.y+randint(-100, 100), 
-                                  50, 50, pygame.image.load("images/Tanks/Enemy.png"), 
-                                  70, pygame.image.load("images/Bullets/BadBullet.png"), 
-                                  150, 1, 300, 5))
-    
-    def update(self):
+        self.enemies.append(
+            Enemy(
+                self.x + randint(-100, 100),
+                self.y + randint(-100, 100),
+                50, 50,
+                pygame.image.load("images/Tanks/Enemy.png"),
+                70,
+                pygame.image.load("images/Bullets/BadBullet.png"),
+                150,
+                1,
+                300,
+                5
+            )
+        )
+
+    def update(self, player):
         self.t += 1
-        
-        for e in self.enemies:
-            e.draw(world_surface)
-            e.update()
-        
+
+        # Спавн нових ворогів
         if self.t % self.cooldown == 0 and len(self.enemies) < self.max_enemies:
             self.spawn()
-            
+
+        # Оновлюємо ворогів
+        for e in self.enemies:
+            e.update(player)
+
+        # Видаляємо мертвих
+        self.enemies = [e for e in self.enemies if e.alive]
+                
 
 class Camera:
     def __init__(self):
@@ -388,7 +405,6 @@ def write_info(path, info):
     formatted = f"[{now.strftime('%d.%m.%Y')}] [{now.strftime('%H:%M')}]"
     with open(path, "a", encoding="utf-8") as file:
         file.write(f"{formatted} {info}\n")
-        print("AAA")
 
 def update_player_costume():
     global bullet_img
@@ -458,50 +474,6 @@ def set_score(score):
     with open("score.txt", "w", encoding="utf-8") as file: 
         file.write(str(score))
 
-def load_level(index):
-    global map_width, map_height, b_x, b_y
-    level = all_levels[index]
-    map_width, map_height = len(level[0]) * b_size, len(level) * b_size
-    obstacles.clear()
-    tiles.clear()
-    bullets.clear()
-    turrets.clear()
-    spawners.clear()
-    for row in level:
-        for char in row:
-            if char == "1":
-                obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Wall.png")))
-            if char == "2":
-                tiles.append(SlowTile(b_x, b_y, b_size, b_size, 
-                                    pygame.image.load("images/Tiles/Slow.png"),
-                                    pygame.image.load("images/Tiles/Slow2.png"),1.7))
-            if char == "3":
-                tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 
-                                    pygame.image.load("images/Tiles/Fast2.png"), 2))
-            if char == "4":
-                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"),
-                                    pygame.image.load("images/Tiles/Down2.png"), "down"))
-            if char == "5":
-                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"),
-                                    pygame.image.load("images/Tiles/Up2.png"), "up"))
-            if char == "6":
-                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"),
-                                    pygame.image.load("images/Tiles/Right2.png"), "right"))
-            if char == "7":
-                tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"),
-                                    pygame.image.load("images/Tiles/Left2.png"), "left"))
-            if char == "8":
-                turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretRight.png"),
-                                    50, pygame.image.load("images/Bullets/BadBullet.png"), 2, -1))
-            if char == "9":
-                turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
-                                    50, pygame.image.load("images/Bullets/BadBullet.png"), 2, 1))
-            if char == "#":
-                spawners.append(EnemySpawner(b_x, b_y, 150, 2))
-            b_x += b_size
-        b_y += b_size
-        b_x = 0
-
 def start_game():
     global menu
     menu = False
@@ -514,6 +486,41 @@ def open_shop():
     global shop, menu
     menu = False
     shop = True
+
+for row in level:
+    for char in row:
+        if char == "1":
+            obstacles.append(Sprite(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Wall.png")))
+        if char == "2":
+            tiles.append(SlowTile(b_x, b_y, b_size, b_size, 
+                                pygame.image.load("images/Tiles/Slow.png"),
+                                pygame.image.load("images/Tiles/Slow2.png"),1.7))
+        if char == "3":
+            tiles.append(FastTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Fast.png"), 
+                                pygame.image.load("images/Tiles/Fast2.png"), 2))
+        if char == "4":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Down.png"),
+                                pygame.image.load("images/Tiles/Down2.png"), "down"))
+        if char == "5":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Up.png"),
+                                pygame.image.load("images/Tiles/Up2.png"), "up"))
+        if char == "6":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Right.png"),
+                                pygame.image.load("images/Tiles/Right2.png"), "right"))
+        if char == "7":
+            tiles.append(MoveTile(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/Left.png"),
+                                pygame.image.load("images/Tiles/Left2.png"), "left"))
+        if char == "8":
+            turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretRight.png"),
+                                50, pygame.image.load("images/Bullets/BadBullet.png"), 2, -1))
+        if char == "9":
+            turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
+                                50, pygame.image.load("images/Bullets/BadBullet.png"), 2, 1))
+        if char == "#":
+            spawners.append(EnemySpawner(b_x, b_y, 150, 2))
+        b_x += b_size
+    b_y += b_size
+    b_x = 0
 
 font = pygame.font.SysFont("Century Gothic", 20, True)
 version_txt = font.render("V1.5", True, (0, 0, 0))
@@ -552,7 +559,6 @@ next_state = None
 costume = "Player"
 bought_costumes = {"Player"}
 score = get_previous_score()
-load_level(0)
 
 while running:
     i += 1
@@ -706,19 +712,37 @@ while running:
             bullet.draw(world_surface)
         
         for spawner in spawners:
-            spawner.update()
+            spawner.update(player)  # вороги оновлюються всередині спавнера
+
             for enemy in spawner.enemies:
-                if enemy.alive:
-                    enemy.draw(world_surface)
-                    enemy.update()
-                else:
-                    spawner.enemies.remove(enemy)
-                    
+                enemy.draw(world_surface)  # малюємо ворога
+
+        # Колізії гравця з ворожими кулями
+        for spawner in spawners:
+            for enemy in spawner.enemies:
                 for bullet in enemy.bullets:
                     if player.rect.colliderect(bullet.rect):
                         player.hp -= 1
                         bullet.alive = False
-        
+                # Видаляємо мертві кулі
+                enemy.bullets = [b for b in enemy.bullets if b.alive]
+
+        # Колізії ворогів з кулями гравця
+        for bullet in bullets:
+            for spawner in spawners:
+                for enemy in spawner.enemies:
+                    if enemy.rect.colliderect(bullet.rect):
+                        enemy.hp -= 1
+                        score += 1
+                        bullet.alive = False
+
+        # Видаляємо мертвих ворогів
+        for spawner in spawners:
+            spawner.enemies = [e for e in spawner.enemies if e.alive]
+
+        # Видаляємо мертві кулі гравця
+        bullets[:] = [b for b in bullets if b.alive]
+                
         for turret in turrets:
             turret.update()
             turret.draw(world_surface)
