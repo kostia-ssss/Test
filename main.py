@@ -1,4 +1,3 @@
-from maze import all_levels
 from tank_data import tank_data
 from datetime import datetime
 from random import randint
@@ -17,11 +16,12 @@ tiles = []
 bullets = []
 turrets = []
 spawners = []
-map_width, map_height = len(all_levels[0][0]) * b_size, len(all_levels[0]) * b_size
-level = generate((25, 25), 6, (2, 3), (7, 8))
+map_width, map_height = 64 * b_size, 64 * b_size
+level = generate((64, 64), 15, (2, 3), (10, 15), 10, 3, 10)
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 
+print(level)
 pygame.display.set_caption("Battle City Remake")
 pygame.display.set_icon(pygame.image.load("images/Tanks/Player.png"))
 
@@ -58,10 +58,10 @@ class Button(Sprite):
         self.rect.w = new_w
         self.rect.h = new_h
         
-        self.img = pygame.transform.scale(
-            self.original_img, 
-            (new_w, new_h)
-        )
+        # self.img = pygame.transform.scale(
+        #     self.original_img, 
+        #     (new_w, new_h)
+        # )
         
     
 class ShopTile(Sprite):
@@ -114,6 +114,7 @@ class MoveTile(Sprite):
         self.img2 = img2
     
     def effect(self, player):
+        p_x, p_y = player.rect.x, player.rect.y
         if self.direction == "up":
             player.rect.y -= 3
         if self.direction == "down":
@@ -122,6 +123,10 @@ class MoveTile(Sprite):
             player.rect.x -= 3
         if self.direction == "right":
             player.rect.x += 3
+        
+        for o in obstacles:
+            if player.rect.colliderect(o.rect):
+                player.rect.x, player.rect.y = p_x, p_y
     
     def update(self):
         self.t += 1
@@ -277,6 +282,11 @@ class Enemy(Sprite):
         self.see_distance = see_distance
         self.hp = hp
         self.alive = True
+        
+        self.img_r = pygame.transform.scale(img, (w, h))
+        self.img_l = pygame.transform.rotate(self.img_r, 180)
+        self.img_u = pygame.transform.rotate(self.img_r, 90)
+        self.img_d = pygame.transform.rotate(self.img_r, 270)
 
     def shoot(self, player):
         target_pos = (
@@ -303,17 +313,17 @@ class Enemy(Sprite):
         if abs(dh) > abs(dv):
             if dh > 0:
                 self.rect.x -= self.speed
-                self.img = pygame.transform.rotate(self.original_img, 180)
+                self.img = self.img_l
             elif dh < 0:
                 self.rect.x += self.speed
-                self.img = self.original_img
+                self.img = self.img_r
         else:
             if dv > 0:
                 self.rect.y -= self.speed
-                self.img = pygame.transform.rotate(self.original_img, 90)
+                self.img = self.img_u
             elif dv < 0:
                 self.rect.y += self.speed
-                self.img = pygame.transform.rotate(self.original_img, 270)
+                self.img = self.img_d
 
         self.img = pygame.transform.scale(self.img, (self.rect.w, self.rect.h))
 
@@ -402,7 +412,7 @@ class Camera:
 
 def write_info(path, info):
     now = datetime.now()
-    formatted = f"[{now.strftime('%d.%m.%Y')}] [{now.strftime('%H:%M')}]"
+    formatted = f"[{now.strftime('%d.%m.%Y')}] [{now.strftime('%H:%M:%S')}]"
     with open(path, "a", encoding="utf-8") as file:
         file.write(f"{formatted} {info}\n")
 
@@ -559,6 +569,7 @@ next_state = None
 costume = "Player"
 bought_costumes = {"Player"}
 score = get_previous_score()
+log_timer = 0
 
 while running:
     i += 1
@@ -693,103 +704,98 @@ while running:
         window.blit(world_surface, (0, 0))
         
     else:
-        world_surface.fill((0, 0, 0))
+        # ---------------- Камера ----------------
+        view_w = int(W / camera.zoom)
+        view_h = int(H / camera.zoom)
 
-        game_bg.draw(world_surface)
+        view_x = player.rect.centerx - view_w // 2
+        view_y = player.rect.centery - view_h // 2
 
-        for obstacle in obstacles:
-            obstacle.draw(world_surface)
+        view_x = max(0, min(map_width - view_w, view_x))
+        view_y = max(0, min(map_height - view_h, view_y))
 
+        view_rect = pygame.Rect(view_x, view_y, view_w, view_h)
+
+        # ---------------- Поверхня кадру ----------------
+        frame = pygame.Surface((view_w, view_h))
+        frame.fill((20, 20, 25))  # фон
+
+        # ---------------- Тайли ----------------
         player.speed = player.base_speed
         for tile in tiles:
-            tile.update()
-            tile.draw(world_surface)
+            if tile.rect.colliderect(view_rect):
+                draw_rect = tile.rect.move(-view_x, -view_y)
+                frame.blit(tile.img, draw_rect)
             if player.rect.colliderect(tile.rect):
                 tile.effect(player)
 
-        for bullet in bullets:
-            bullet.move(player)
-            bullet.draw(world_surface)
-        
-        for spawner in spawners:
-            spawner.update(player)  # вороги оновлюються всередині спавнера
+        # ---------------- Об'єкти ----------------
+        for obstacle in obstacles:
+            if obstacle.rect.colliderect(view_rect):
+                draw_rect = obstacle.rect.move(-view_x, -view_y)
+                frame.blit(obstacle.img, draw_rect)
 
-            for enemy in spawner.enemies:
-                enemy.draw(world_surface)  # малюємо ворога
-
-        # Колізії гравця з ворожими кулями
+        # ---------------- Вороги ----------------
         for spawner in spawners:
+            spawner.update(player)
             for enemy in spawner.enemies:
+                enemy.update(player)
+                if enemy.rect.colliderect(view_rect):
+                    draw_rect = enemy.rect.move(-view_x, -view_y)
+                    frame.blit(enemy.img, draw_rect)
+
+                # кулі ворогів
                 for bullet in enemy.bullets:
+                    bullet.move(player)
+                    if bullet.rect.colliderect(view_rect):
+                        draw_rect = bullet.rect.move(-view_x, -view_y)
+                        frame.blit(bullet.img, draw_rect)
                     if player.rect.colliderect(bullet.rect):
                         player.hp -= 1
                         bullet.alive = False
-                # Видаляємо мертві кулі
                 enemy.bullets = [b for b in enemy.bullets if b.alive]
+            spawner.enemies = [e for e in spawner.enemies if e.alive]
 
-        # Колізії ворогів з кулями гравця
+        # ---------------- Кулі гравця ----------------
         for bullet in bullets:
+            bullet.move(player)
+            if bullet.rect.colliderect(view_rect):
+                draw_rect = bullet.rect.move(-view_x, -view_y)
+                frame.blit(bullet.img, draw_rect)
+
             for spawner in spawners:
                 for enemy in spawner.enemies:
                     if enemy.rect.colliderect(bullet.rect):
                         enemy.hp -= 1
                         score += 1
                         bullet.alive = False
-
-        # Видаляємо мертвих ворогів
-        for spawner in spawners:
-            spawner.enemies = [e for e in spawner.enemies if e.alive]
-
-        # Видаляємо мертві кулі гравця
         bullets[:] = [b for b in bullets if b.alive]
-                
+
+        # ---------------- Гравець ----------------
+        player.update(obstacles)
+        draw_rect = player.rect.move(-view_x, -view_y)
+        frame.blit(player.img, draw_rect)
+
+        # ---------------- Туррети ----------------
         for turret in turrets:
             turret.update()
-            turret.draw(world_surface)
+            if turret.rect.colliderect(view_rect):
+                draw_rect = turret.rect.move(-view_x, -view_y)
+                frame.blit(turret.img, draw_rect)
 
-        bullets[:] = [b for b in bullets if b.alive]
+        # ---------------- Масштабування карти ----------------
+        scaled_frame = pygame.transform.scale(frame, (W, H))
+        window.blit(scaled_frame, (0, 0))
 
-        
-        player.update(obstacles)
-        player.draw(world_surface)
+        # ---------------- UI (НЕ ЗУМУЄТЬСЯ) ----------------
+        hp_text = font.render(f"HP: {player.hp}", True, (255, 255, 255))
+        score_text = font.render(f"Score: {score}", True, (255, 255, 255))
+        fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (0, 255, 0))
 
-        camera.update(player)
-
-        view_width = int(W / camera.zoom)
-        view_height = int(H / camera.zoom)
-
-        # Центруємо на гравці
-        view_x = int(player.rect.centerx - view_width // 2)
-        view_y = int(player.rect.centery - view_height // 2)
-
-        # Обмежуємо межами карти
-        view_x = max(0, min(map_width - view_width, view_x))
-        view_y = max(0, min(map_height - view_height, view_y))
-
-        view_rect = pygame.Rect(view_x, view_y, view_width, view_height)
-
-        sub_surface = world_surface.subsurface(view_rect).copy()
-
-        scaled_view = pygame.transform.scale(sub_surface, (W, H))
-
-        window.blit(scaled_view, (0, 0))
-
-
-        # UI
+        window.blit(hp_text, (10, 10))
+        window.blit(score_text, (10, 40))
+        window.blit(fps_text, (10, 70))
         close_game_button.draw(window)
-        
-        fps = clock.get_fps()
-        fps_txt = font.render(f"FPS: {fps:.2f}", True, (255, 255, 255))
-        window.blit(fps_txt, (0, 0))
-
-        patrons_txt = font.render(f"Patrons: {player.patrons}", True, (255, 255, 255))
-        window.blit(patrons_txt, (0, 20))
-
-        hp_txt = font.render(f"HP: {player.hp}", True, (255, 255, 255))
-        window.blit(hp_txt, (0, 40))
-
-        score_txt = font.render(f"Score: {score}", True, (255, 255, 255))
-        window.blit(score_txt, (0, 60))
     
     if fading:
         fade_surface = pygame.Surface((W, H))
@@ -825,7 +831,10 @@ while running:
             fading = False
             next_state = None
 
-    write_info("log.txt", f"FPS: {round(clock.get_fps(), 2)}")
+    log_timer += 1
+    if log_timer >= 60:
+        write_info("log.txt", f"FPS: {round(clock.get_fps(), 2)}")
+        log_timer = 0
     
     pygame.display.update()
     clock.tick(60)

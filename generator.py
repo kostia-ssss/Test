@@ -42,6 +42,20 @@ def generate_rooms(maze, maze_size, num_of_rooms, min_size, max_size, char, cent
                 for i in range(x, x + room_w):
                     occupied.add((i,j))
 
+def generate_line(x, y, maze, maze_size, min_len, max_len, char, direction):
+    w, h = maze_size
+    length = randint(min_len, max_len)
+    horizontal = direction == 0  # True = горизонтально, False = вертикально
+
+    for i in range(length):
+        xi = x + i if horizontal else x
+        yi = y if horizontal else y + i
+
+        # Перевірка меж лабіринту
+        if 0 <= xi < w and 0 <= yi < h:
+            maze[yi][xi] = char
+        
+
 def carve_corridor(maze, start, end, occupied):
     x1, y1 = start
     x2, y2 = end
@@ -65,11 +79,12 @@ def carve_corridor(maze, start, end, occupied):
             occupied.add((x,y2))
             occupied.add((x,y2+1))
 
-def generate(size, num_of_rooms, min_size, max_size):
+def generate(size, num_of_rooms, min_size, max_size, num_of_lines, min_size_l, max_size_l):
     w, h = size
     maze = [["1"] * w for _ in range(h)]
     centers = []
     occupied = set()  # сет всіх зайнятих клітин
+    directions = {0: randint(6, 7), 1: randint(4, 5)}
 
     # Стартова кімната
     generate_room(maze, 1, 1, 3, 3)
@@ -81,6 +96,22 @@ def generate(size, num_of_rooms, min_size, max_size):
     # Генерація кімнат різного типу
     for char in ["0","2","3"]:
         generate_rooms(maze, size, num_of_rooms, min_size, max_size, char, centers, occupied)
+    
+    for _ in range(num_of_lines):
+        direction = randint(0,1)  # 0 = горизонтальна, 1 = вертикальна
+        length = randint(min_size_l, max_size_l)
+        
+        c = "4"
+        if direction == 0:  # горизонтальна
+            x = randint(0, w - length - 1)
+            y = randint(0, h - 1)
+            c = str(randint(6, 7))
+        else:  # вертикальна
+            x = randint(0, w - 1)
+            y = randint(0, h - length - 1)
+            c = str(randint(4, 5))
+
+        generate_line(x, y, maze, size, min_size_l, max_size_l, char=c, direction=direction)
 
     # Коридори
     for i in range(1, len(centers)):
