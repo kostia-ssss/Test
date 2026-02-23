@@ -17,11 +17,13 @@ bullets = []
 turrets = []
 spawners = []
 map_width, map_height = 64 * b_size, 64 * b_size
-level = generate((64, 64), 15, (2, 3), (10, 15), 10, 3, 10)
+level, spawner_centers = generate((64, 64), 15, (2, 3), (10, 15), 10, 3, 10)
+
+
+    
 window = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 
-print(level)
 pygame.display.set_caption("Battle City Remake")
 pygame.display.set_icon(pygame.image.load("images/Tanks/Player.png"))
 
@@ -370,20 +372,21 @@ class EnemySpawner:
         self.t = 0
 
     def spawn(self):
+        spawn_x, spawn_y = self.x + randint(-20, 20), self.y + randint(-20, 20)
         self.enemies.append(
-            Enemy(
-                self.x + randint(-100, 100),
-                self.y + randint(-100, 100),
-                50, 50,
-                pygame.image.load("images/Tanks/Enemy.png"),
-                70,
-                pygame.image.load("images/Bullets/BadBullet.png"),
-                150,
-                1,
-                300,
-                5
-            )
-        )
+                    Enemy(
+                        spawn_x, 
+                        spawn_y,
+                        50, 50,
+                        pygame.image.load("images/Tanks/Enemy.png"),
+                        70,
+                        pygame.image.load("images/Bullets/BadBullet.png"),
+                        150,
+                        1,
+                        300,
+                        5
+                    )
+                )
 
     def update(self, player):
         self.t += 1
@@ -497,6 +500,10 @@ def open_shop():
     menu = False
     shop = True
 
+for center in spawner_centers:
+    spawners.append(EnemySpawner(center[0]*b_size, center[1]*b_size, 150, 2))
+    print("Spawner added at:", center)
+
 for row in level:
     for char in row:
         if char == "1":
@@ -526,8 +533,6 @@ for row in level:
         if char == "9":
             turrets.append(Turret(b_x, b_y, b_size, b_size, pygame.image.load("images/Tiles/TurretLeft.png"),
                                 50, pygame.image.load("images/Bullets/BadBullet.png"), 2, 1))
-        if char == "#":
-            spawners.append(EnemySpawner(b_x, b_y, 150, 2))
         b_x += b_size
     b_y += b_size
     b_x = 0
@@ -552,10 +557,10 @@ buy_fast = ShopTile(270, 100, 150, 210, pygame.image.load("images/ShopTiles/BuyF
 buy_hyper = ShopTile(440, 100, 150, 210, pygame.image.load("images/ShopTiles/BuyHyper.png"), 
                     pygame.image.load("images/Buttons/Buy.png"), "Hyper")
 to_menu = Button(W/2, H/2, 100, 40, pygame.image.load("images/Buttons/Menu.png"), go_to_menu)
-player = Player(75, 75, pygame.image.load("images/Tanks/Player.png"), 5, 50)
+player = Player(75, 75, pygame.image.load("images/Tanks/Player.png"), 6, 50)
 camera = Camera()
 world_surface = pygame.Surface((map_width, map_height)).convert()
-
+print(spawners)
 running = True
 menu = True
 levels_menu = False
@@ -704,6 +709,7 @@ while running:
         window.blit(world_surface, (0, 0))
         
     else:
+        
         # ---------------- Камера ----------------
         view_w = int(W / camera.zoom)
         view_h = int(H / camera.zoom)
@@ -718,11 +724,12 @@ while running:
 
         # ---------------- Поверхня кадру ----------------
         frame = pygame.Surface((view_w, view_h))
-        frame.fill((20, 20, 25))  # фон
+        frame.fill((220, 220, 225))  # фон
 
         # ---------------- Тайли ----------------
         player.speed = player.base_speed
         for tile in tiles:
+            tile.update()
             if tile.rect.colliderect(view_rect):
                 draw_rect = tile.rect.move(-view_x, -view_y)
                 frame.blit(tile.img, draw_rect)
